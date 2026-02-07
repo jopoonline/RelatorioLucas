@@ -72,21 +72,25 @@ with tab_dash:
     elif not lids_f:
         st.warning("Selecione uma célula.")
     else:
-        mes_dash = st.selectbox("📅 Mês de Referência:", MESES_NOMES, index=date.today().month - 1)
+        # Seletores Superiores
+        c_m, c_s = st.columns(2)
+        mes_dash = c_m.selectbox("📅 Mês de Referência:", MESES_NOMES, index=date.today().month - 1)
         mes_num = MESES_MAP[mes_dash]
         
         df_base = st.session_state.db[st.session_state.db['Líder'].isin(lids_f)]
         df_v_base = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'].isin(lids_f)]
-        
         df_mes = df_base[df_base['Data'].dt.month == mes_num]
         df_v_mes = df_v_base[df_v_base['Data'].dt.month == mes_num]
 
         if not df_mes.empty:
-            u_dt = df_mes['Data'].max()
-            df_u = df_mes[df_mes['Data'] == u_dt]
-            df_v_u = df_v_mes[df_v_mes['Data'] == u_dt] if not df_v_mes.empty else pd.DataFrame()
+            datas_disp = sorted(df_mes['Data'].unique(), reverse=True)
+            data_resumo = c_s.selectbox("🔎 Ver Semana:", datas_disp, format_func=lambda x: x.strftime('%d/%m/%Y'))
+            
+            df_u = df_mes[df_mes['Data'] == data_resumo]
+            df_v_u = df_v_mes[df_v_mes['Data'] == data_resumo] if not df_v_mes.empty else pd.DataFrame()
 
-            st.subheader(f"📍 Resumo: {u_dt.strftime('%d/%m')}")
+            # --- BLOCO INDICADORES ---
+            st.subheader(f"📍 Resumo: {data_resumo.strftime('%d/%m')}")
             col1, col2 = st.columns(2)
             with col1:
                 st.write("**🏠 Célula**")
@@ -102,6 +106,7 @@ with tab_dash:
                 c5.markdown(f'<div class="metric-card"><p style="font-size:11px">FA</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="FA"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
                 c6.markdown(f'<div class="metric-card"><p style="font-size:11px">VISIT.</p><p class="metric-value-cul">{int(df_v_u["Vis_Culto"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
 
+            # --- GRÁFICO EVOLUÇÃO ---
             st.write(f"### 📈 Evolução Semanal - {mes_dash}")
             df_s = df_mes.groupby('Data')[['Célula', 'Culto']].sum().reset_index()
             fig_s = go.Figure()
@@ -110,45 +115,39 @@ with tab_dash:
             fig_s.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", height=250, xaxis=dict(tickformat="%d/%m"))
             st.plotly_chart(fig_s, use_container_width=True)
 
+        # --- RADAR DUPLO ---
         st.divider()
-        st.write("### 🚨 RADARES DE ALERTA (Últimas 2 Semanas)")
-        
+        st.write("### 🚨 RADARES DE ALERTA (Últimas 2 Semanas Gerais)")
         d_u_global = sorted(df_base['Data'].unique())
         if len(d_u_global) >= 2:
+            u2_datas = d_u_global[-2:]
             r1, r2 = st.columns(2)
-            ultimas_2_datas = d_u_global[-2:]
-            
             with r1:
-                st.write("**Faltas de Membros**")
-                df_r = df_base[df_base['Data'].isin(ultimas_2_datas)]
-                fals = df_r.groupby(['Nome', 'Líder'])['Célula'].sum().reset_index()
-                list_v = fals[fals['Célula'] == 0]
-                if not list_v.empty:
-                    for _, row in list_v.iterrows():
-                        st.markdown(f'<div class="radar-card">🚩 <b>{row["Nome"]}</b> ({row["Líder"]})</div>', unsafe_allow_html=True)
-                else: st.success("Nenhuma falta dupla.")
-
+                st.write("**Faltas de Membros (2 semanas)**")
+                df_r = df_base[df_base['Data'].isin(u2_datas)]
+                list_v = df_r.groupby(['Nome', 'Líder'])['Célula'].sum().reset_index()
+                list_v = list_v[list_v['Célula'] == 0]
+                for _, row in list_v.iterrows():
+                    st.markdown(f'<div class="radar-card">🚩 <b>{row["Nome"]}</b> ({row["Líder"]})</div>', unsafe_allow_html=True)
             with r2:
-                st.write("**Células sem Visitantes**")
-                df_rv = df_v_base[df_v_base['Data'].isin(ultimas_2_datas)]
+                st.write("**Células sem Visitantes (2 semanas)**")
+                df_rv = df_v_base[df_v_base['Data'].isin(u2_datas)]
                 fals_v = df_rv.groupby('Líder')['Vis_Celula'].sum().reset_index()
                 list_vv = fals_v[fals_v['Vis_Celula'] == 0]
-                if not list_vv.empty:
-                    for _, row in list_vv.iterrows():
-                        st.markdown(f'<div class="radar-card-vis">⚠️ Célula <b>{row["Líder"]}</b> (0 visitantes)</div>', unsafe_allow_html=True)
-                else: st.success("Células frutíferas!")
+                for _, row in list_vv.iterrows():
+                    st.markdown(f'<div class="radar-card-vis">⚠️ Célula <b>{row["Líder"]}</b></div>', unsafe_allow_html=True)
         else:
-            st.info("Os radares serão ativados após 2 semanas de dados.")
+            st.info("Os radares serão ativados após registros de 2 semanas diferentes.")
 
-# --- ABAS DE APOIO ---
+# --- ABA 2: LANÇAR ---
 with tab_lanc:
-    st.subheader("📝 Chamada")
+    st.subheader("📝 Chamada Mobile")
     if not lideres_lista: st.info("Cadastre células na aba GESTÃO.")
     else:
         la, lb, lc = st.columns(3)
-        m_s = la.selectbox("Mês", MESES_NOMES, key="ms")
-        d_s = lb.selectbox("Sábado", get_sabados(m_s), format_func=lambda x: x.strftime('%d/%m'), key="ds")
-        l_s = lc.selectbox("Líder", lideres_lista, key="ls")
+        m_s = la.selectbox("Mês", MESES_NOMES, key="m_lanc")
+        d_s = lb.selectbox("Sábado", get_sabados(m_s), format_func=lambda x: x.strftime('%d/%m'), key="d_lanc")
+        l_s = lc.selectbox("Líder", lideres_lista, key="l_lanc")
         membros = st.session_state.membros_cadastrados.get(l_s, {})
         for n, t in membros.items():
             k_ce, k_cu = f"ce_{l_s}_{n}_{d_s}", f"cu_{l_s}_{n}_{d_s}"
@@ -161,16 +160,17 @@ with tab_lanc:
             if b2.button(f"Culto: {'✅' if st.session_state[k_cu] else '❌'}", key=f"bcu_{n}_{d_s}", use_container_width=True):
                 st.session_state[k_cu] = not st.session_state[k_cu]; st.rerun()
         v1, v2 = st.columns(2)
-        vi_ce = v1.number_input("Vis. Célula", 0, key="vi_ce")
-        vi_cu = v2.number_input("Vis. Culto", 0, key="vi_cu")
-        if st.button("💾 SALVAR", use_container_width=True, type="primary"):
+        vi_ce = v1.number_input("Visitantes Célula", 0)
+        vi_cu = v2.number_input("Visitantes Culto", 0)
+        if st.button("💾 SALVAR DADOS", use_container_width=True, type="primary"):
             dt = pd.to_datetime(d_s)
             novos = [{"Data": dt, "Líder": l_s, "Nome": n, "Tipo": t, "Célula": 1 if st.session_state[f"ce_{l_s}_{n}_{d_s}"] else 0, "Culto": 1 if st.session_state[f"cu_{l_s}_{n}_{d_s}"] else 0} for n, t in membros.items()]
             st.session_state.db = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt) & (st.session_state.db['Líder']==l_s))], pd.DataFrame(novos)], ignore_index=True)
             v_df = pd.DataFrame([{"Data": dt, "Líder": l_s, "Vis_Celula": vi_ce, "Vis_Culto": vi_cu}])
             st.session_state.db_visitantes = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt) & (st.session_state.db_visitantes['Líder']==l_s))], v_df], ignore_index=True)
-            st.success("Salvo!"); st.balloons()
+            st.success("Salvo com sucesso!"); st.balloons()
 
+# --- ABA 3: RELATÓRIO OB ---
 with tab_ob:
     st.write("### 📋 Relatório Semanal Detalhado")
     if not st.session_state.db.empty:
@@ -181,17 +181,19 @@ with tab_ob:
         df_f = pd.merge(df_p.reset_index(), df_v, on='Data', how='left').fillna(0)
         df_f['Data'] = df_f['Data'].dt.strftime('%d/%m/%Y')
         st.dataframe(df_f, use_container_width=True, hide_index=True)
+    else: st.info("Sem dados.")
 
+# --- ABA 4: GESTÃO ---
 with tab_gestao:
-    st.header("⚙️ Gestão")
+    st.header("⚙️ Configurações")
     n_c = st.text_input("Novo Líder")
     if st.button("Adicionar Célula"):
         if n_c: st.session_state.membros_cadastrados[n_c] = {}; st.rerun()
     if lideres_lista:
-        s_c = st.selectbox("Editar:", lideres_lista)
-        nm = st.text_input("Nome da Pessoa")
-        tm = st.radio("Tipo", ["Membro", "FA"], horizontal=True)
-        if st.button("Salvar Pessoa"):
+        s_c = st.selectbox("Gerenciar Célula:", lideres_lista)
+        nm = st.text_input("Nome do Membro")
+        tm = st.radio("Categoria", ["Membro", "FA"], horizontal=True)
+        if st.button("Salvar Membro"):
             if nm: st.session_state.membros_cadastrados[s_c][nm] = tm; st.rerun()
         if st.button("Excluir Célula"):
             del st.session_state.membros_cadastrados[s_c]; st.rerun()
