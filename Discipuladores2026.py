@@ -77,8 +77,14 @@ with tab_dash:
         mes_dash = c_m.selectbox("📅 Mês de Referência:", MESES_NOMES, index=date.today().month - 1)
         mes_num = MESES_MAP[mes_dash]
         
+        # Filtros de Base
         df_base = st.session_state.db[st.session_state.db['Líder'].isin(lids_f)]
         df_v_base = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'].isin(lids_f)]
+        
+        # 1. DASHBOARD SEMANAL
+        st.markdown("---")
+        st.write(f"### 📈 Evolução Semanal - {mes_dash}")
+        
         df_mes = df_base[df_base['Data'].dt.month == mes_num]
         df_v_mes = df_v_base[df_v_base['Data'].dt.month == mes_num]
 
@@ -89,57 +95,93 @@ with tab_dash:
             df_u = df_mes[df_mes['Data'] == data_resumo]
             df_v_u = df_v_mes[df_v_mes['Data'] == data_resumo] if not df_v_mes.empty else pd.DataFrame()
 
-            # --- BLOCO INDICADORES ---
-            st.subheader(f"📍 Resumo: {data_resumo.strftime('%d/%m')}")
+            # Resumo da Semana Selecionada
             col1, col2 = st.columns(2)
             with col1:
-                st.write("**🏠 Célula**")
+                st.write(f"**🏠 Célula ({data_resumo.strftime('%d/%m')})**")
                 c1, c2, c3 = st.columns(3)
                 total_m_base = sum([list(st.session_state.membros_cadastrados[l].values()).count("Membro") for l in lids_f])
                 c1.markdown(f'<div class="metric-card"><p style="font-size:11px">MEMBROS</p><p class="metric-value-cel">{int(df_u[df_u["Tipo"]=="Membro"]["Célula"].sum())}/{total_m_base}</p></div>', unsafe_allow_html=True)
                 c2.markdown(f'<div class="metric-card"><p style="font-size:11px">FA</p><p class="metric-value-cel">{int(df_u[df_u["Tipo"]=="FA"]["Célula"].sum())}</p></div>', unsafe_allow_html=True)
                 c3.markdown(f'<div class="metric-card"><p style="font-size:11px">VISIT.</p><p class="metric-value-cel">{int(df_v_u["Vis_Celula"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
             with col2:
-                st.write("**⛪ Culto**")
+                st.write(f"**⛪ Culto ({data_resumo.strftime('%d/%m')})**")
                 c4, c5, c6 = st.columns(3)
                 c4.markdown(f'<div class="metric-card"><p style="font-size:11px">MEMBROS</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="Membro"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
                 c5.markdown(f'<div class="metric-card"><p style="font-size:11px">FA</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="FA"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
                 c6.markdown(f'<div class="metric-card"><p style="font-size:11px">VISIT.</p><p class="metric-value-cul">{int(df_v_u["Vis_Culto"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
 
-            # --- GRÁFICO EVOLUÇÃO ---
-            st.write(f"### 📈 Evolução Semanal - {mes_dash}")
+            # Gráfico de Linhas do Mês
             df_s = df_mes.groupby('Data')[['Célula', 'Culto']].sum().reset_index()
             fig_s = go.Figure()
             fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Célula'], name='Célula', line=dict(color='#00D4FF', width=3), mode='lines+markers'))
             fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Culto'], name='Culto', line=dict(color='#EF4444', width=3), mode='lines+markers'))
             fig_s.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", height=250, xaxis=dict(tickformat="%d/%m"))
             st.plotly_chart(fig_s, use_container_width=True)
+        else:
+            st.warning(f"Sem registros semanais para {mes_dash}.")
 
-        # --- RADAR DUPLO ---
-        st.divider()
-        st.write("### 🚨 RADARES DE ALERTA (Últimas 2 Semanas Gerais)")
+        # 2. DASHBOARD MENSAL (COMPARATIVO)
+        st.markdown("---")
+        st.write("### 📊 Evolução Mensal (Comparativo Trimestral)")
+        
+        # Lógica para pegar o mês selecionado + 2 anteriores
+        meses_comp = []
+        for i in range(2, -1, -1):
+            idx = (mes_num - 1 - i)
+            if idx >= 0: meses_comp.append(idx + 1)
+        
+        df_tri = df_base[df_base['Data'].dt.month.isin(meses_comp)].copy()
+        
+        if not df_tri.empty:
+            df_tri['Mês'] = df_tri['Data'].dt.month.map({v: k for k, v in MESES_MAP.items()})
+            # Soma de Membros + FA + Visitantes (Célula e Culto) por Mês
+            # Precisamos somar visitantes também
+            df_v_tri = df_v_base[df_v_base['Data'].dt.month.isin(meses_comp)].copy()
+            df_v_tri['Mês'] = df_v_tri['Data'].dt.month.map({v: k for k, v in MESES_MAP.items()})
+            
+            mensal_membros = df_tri.groupby('Mês')[['Célula', 'Culto']].sum()
+            mensal_vis = df_v_tri.groupby('Mês')[['Vis_Celula', 'Vis_Culto']].sum()
+            
+            # Unir totais
+            df_mensal = mensal_membros.join(mensal_vis).reset_index()
+            df_mensal['Total Célula'] = df_mensal['Célula'] + df_mensal['Vis_Celula']
+            df_mensal['Total Culto'] = df_mensal['Culto'] + df_mensal['Vis_Culto']
+            
+            # Ordenar os meses
+            df_mensal['Mês'] = pd.Categorical(df_mensal['Mês'], categories=MESES_NOMES, ordered=True)
+            df_mensal = df_mensal.sort_values('Mês')
+
+            fig_m = px.bar(df_mensal, x='Mês', y=['Total Célula', 'Total Culto'], 
+                           barmode='group', color_discrete_map={'Total Célula': '#00D4FF', 'Total Culto': '#EF4444'})
+            fig_m.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", height=300)
+            st.plotly_chart(fig_m, use_container_width=True)
+        else:
+            st.info("Lance dados de meses diferentes para ver a comparação mensal.")
+
+        # 3. RADARES
+        st.markdown("---")
+        st.write("### 🚨 RADARES DE ALERTA")
         d_u_global = sorted(df_base['Data'].unique())
         if len(d_u_global) >= 2:
-            u2_datas = d_u_global[-2:]
+            u2 = d_u_global[-2:]
             r1, r2 = st.columns(2)
             with r1:
-                st.write("**Faltas de Membros (2 semanas)**")
-                df_r = df_base[df_base['Data'].isin(u2_datas)]
-                list_v = df_r.groupby(['Nome', 'Líder'])['Célula'].sum().reset_index()
-                list_v = list_v[list_v['Célula'] == 0]
-                for _, row in list_v.iterrows():
+                st.write("**Membros/FA (2 Faltas Seguidas)**")
+                df_r = df_base[df_base['Data'].isin(u2)]
+                faltas = df_r.groupby(['Nome', 'Líder'])['Célula'].sum().reset_index()
+                list_f = faltas[faltas['Célula'] == 0]
+                for _, row in list_f.iterrows():
                     st.markdown(f'<div class="radar-card">🚩 <b>{row["Nome"]}</b> ({row["Líder"]})</div>', unsafe_allow_html=True)
             with r2:
-                st.write("**Células sem Visitantes (2 semanas)**")
-                df_rv = df_v_base[df_v_base['Data'].isin(u2_datas)]
+                st.write("**Células (2 Semanas Sem Visitantes)**")
+                df_rv = df_v_base[df_v_base['Data'].isin(u2)]
                 fals_v = df_rv.groupby('Líder')['Vis_Celula'].sum().reset_index()
                 list_vv = fals_v[fals_v['Vis_Celula'] == 0]
                 for _, row in list_vv.iterrows():
                     st.markdown(f'<div class="radar-card-vis">⚠️ Célula <b>{row["Líder"]}</b></div>', unsafe_allow_html=True)
-        else:
-            st.info("Os radares serão ativados após registros de 2 semanas diferentes.")
 
-# --- ABA 2: LANÇAR ---
+# --- ABAS LANÇAR, OB E GESTÃO (Mantidas Conforme Anterior) ---
 with tab_lanc:
     st.subheader("📝 Chamada Mobile")
     if not lideres_lista: st.info("Cadastre células na aba GESTÃO.")
@@ -168,9 +210,8 @@ with tab_lanc:
             st.session_state.db = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt) & (st.session_state.db['Líder']==l_s))], pd.DataFrame(novos)], ignore_index=True)
             v_df = pd.DataFrame([{"Data": dt, "Líder": l_s, "Vis_Celula": vi_ce, "Vis_Culto": vi_cu}])
             st.session_state.db_visitantes = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt) & (st.session_state.db_visitantes['Líder']==l_s))], v_df], ignore_index=True)
-            st.success("Salvo com sucesso!"); st.balloons()
+            st.success("Salvo!"); st.balloons()
 
-# --- ABA 3: RELATÓRIO OB ---
 with tab_ob:
     st.write("### 📋 Relatório Semanal Detalhado")
     if not st.session_state.db.empty:
@@ -181,9 +222,7 @@ with tab_ob:
         df_f = pd.merge(df_p.reset_index(), df_v, on='Data', how='left').fillna(0)
         df_f['Data'] = df_f['Data'].dt.strftime('%d/%m/%Y')
         st.dataframe(df_f, use_container_width=True, hide_index=True)
-    else: st.info("Sem dados.")
 
-# --- ABA 4: GESTÃO ---
 with tab_gestao:
     st.header("⚙️ Configurações")
     n_c = st.text_input("Novo Líder")
