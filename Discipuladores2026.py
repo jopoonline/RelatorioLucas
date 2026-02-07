@@ -30,6 +30,10 @@ st.markdown("""
         background: rgba(239, 68, 68, 0.15); border-left: 5px solid #EF4444; 
         padding: 15px; border-radius: 8px; margin-top: 10px;
     }
+    .radar-card-vis { 
+        background: rgba(245, 158, 11, 0.15); border-left: 5px solid #F59E0B; 
+        padding: 15px; border-radius: 8px; margin-top: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -61,17 +65,19 @@ lids_f = st.multiselect("Filtrar Células:", lideres_lista, default=lideres_list
 
 tab_dash, tab_lanc, tab_ob, tab_gestao = st.tabs(["📊 DASHBOARD", "📝 LANÇAR", "📋 RELATÓRIO OB", "⚙️ GESTÃO"])
 
-# --- ABA 1: DASHBOARD (MANTIDA) ---
+# --- ABA 1: DASHBOARD ---
 with tab_dash:
     if st.session_state.db.empty:
-        st.info("💡 Sem dados. Lance as chamadas para ativar o Dashboard.")
+        st.info("💡 Sem dados lançados. Inicie os registros na aba 'LANÇAR'.")
     elif not lids_f:
         st.warning("Selecione uma célula.")
     else:
-        mes_dash = st.selectbox("📅 Escolha o Mês:", MESES_NOMES, index=date.today().month - 1)
+        mes_dash = st.selectbox("📅 Mês de Referência:", MESES_NOMES, index=date.today().month - 1)
         mes_num = MESES_MAP[mes_dash]
+        
         df_base = st.session_state.db[st.session_state.db['Líder'].isin(lids_f)]
         df_v_base = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'].isin(lids_f)]
+        
         df_mes = df_base[df_base['Data'].dt.month == mes_num]
         df_v_mes = df_v_base[df_v_base['Data'].dt.month == mes_num]
 
@@ -80,137 +86,112 @@ with tab_dash:
             df_u = df_mes[df_mes['Data'] == u_dt]
             df_v_u = df_v_mes[df_v_mes['Data'] == u_dt] if not df_v_mes.empty else pd.DataFrame()
 
-            st.write(f"#### 🏠 Frequência na Célula ({u_dt.strftime('%d/%m')})")
-            c1, c2, c3 = st.columns(3)
-            total_m_base = sum([list(st.session_state.membros_cadastrados[l].values()).count("Membro") for l in lids_f])
-            c1.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">MEMBROS</p><p class="metric-value-cel">{int(df_u[df_u["Tipo"]=="Membro"]["Célula"].sum())} / {total_m_base}</p></div>', unsafe_allow_html=True)
-            c2.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">FA (PRESENTE)</p><p class="metric-value-cel">{int(df_u[df_u["Tipo"]=="FA"]["Célula"].sum())}</p></div>', unsafe_allow_html=True)
-            c3.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">VISITANTES</p><p class="metric-value-cel">{int(df_v_u["Vis_Celula"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
-
-            st.write(f"#### ⛪ Frequência no Culto ({u_dt.strftime('%d/%m')})")
-            c4, c5, c6 = st.columns(3)
-            c4.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">MEMBROS</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="Membro"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
-            c5.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">FA (PRESENTE)</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="FA"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
-            c6.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">VISITANTES</p><p class="metric-value-cul">{int(df_v_u["Vis_Culto"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
+            st.subheader(f"📍 Resumo: {u_dt.strftime('%d/%m')}")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**🏠 Célula**")
+                c1, c2, c3 = st.columns(3)
+                total_m_base = sum([list(st.session_state.membros_cadastrados[l].values()).count("Membro") for l in lids_f])
+                c1.markdown(f'<div class="metric-card"><p style="font-size:11px">MEMBROS</p><p class="metric-value-cel">{int(df_u[df_u["Tipo"]=="Membro"]["Célula"].sum())}/{total_m_base}</p></div>', unsafe_allow_html=True)
+                c2.markdown(f'<div class="metric-card"><p style="font-size:11px">FA</p><p class="metric-value-cel">{int(df_u[df_u["Tipo"]=="FA"]["Célula"].sum())}</p></div>', unsafe_allow_html=True)
+                c3.markdown(f'<div class="metric-card"><p style="font-size:11px">VISIT.</p><p class="metric-value-cel">{int(df_v_u["Vis_Celula"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
+            with col2:
+                st.write("**⛪ Culto**")
+                c4, c5, c6 = st.columns(3)
+                c4.markdown(f'<div class="metric-card"><p style="font-size:11px">MEMBROS</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="Membro"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
+                c5.markdown(f'<div class="metric-card"><p style="font-size:11px">FA</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="FA"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
+                c6.markdown(f'<div class="metric-card"><p style="font-size:11px">VISIT.</p><p class="metric-value-cul">{int(df_v_u["Vis_Culto"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
 
             st.write(f"### 📈 Evolução Semanal - {mes_dash}")
             df_s = df_mes.groupby('Data')[['Célula', 'Culto']].sum().reset_index()
             fig_s = go.Figure()
-            fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Célula'], name='Célula', line=dict(color='#00D4FF', width=4), mode='lines+markers'))
-            fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Culto'], name='Culto', line=dict(color='#EF4444', width=4), mode='lines+markers'))
-            fig_s.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", height=300)
+            fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Célula'], name='Célula', line=dict(color='#00D4FF', width=3), mode='lines+markers'))
+            fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Culto'], name='Culto', line=dict(color='#EF4444', width=3), mode='lines+markers'))
+            fig_s.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", height=250, xaxis=dict(tickformat="%d/%m"))
             st.plotly_chart(fig_s, use_container_width=True)
 
         st.divider()
-        st.write("### 🚨 Radar Crítico (2 Faltas Seguidas)")
+        st.write("### 🚨 RADARES DE ALERTA (Últimas 2 Semanas)")
+        
         d_u_global = sorted(df_base['Data'].unique())
         if len(d_u_global) >= 2:
-            df_r = df_base[df_base['Data'].isin(d_u_global[-2:])]
-            fals = df_r.groupby(['Nome', 'Líder'])['Célula'].sum().reset_index()
-            list_v = fals[fals['Célula'] == 0]
-            for _, row in list_v.iterrows():
-                st.markdown(f'<div class="radar-card">🚩 <b>{row["Nome"]}</b> ({row["Líder"]}) - 2 Faltas!</div>', unsafe_allow_html=True)
-        else:
-            st.info("O radar aparecerá após 2 sábados de chamadas.")
+            r1, r2 = st.columns(2)
+            ultimas_2_datas = d_u_global[-2:]
+            
+            with r1:
+                st.write("**Faltas de Membros**")
+                df_r = df_base[df_base['Data'].isin(ultimas_2_datas)]
+                fals = df_r.groupby(['Nome', 'Líder'])['Célula'].sum().reset_index()
+                list_v = fals[fals['Célula'] == 0]
+                if not list_v.empty:
+                    for _, row in list_v.iterrows():
+                        st.markdown(f'<div class="radar-card">🚩 <b>{row["Nome"]}</b> ({row["Líder"]})</div>', unsafe_allow_html=True)
+                else: st.success("Nenhuma falta dupla.")
 
-# --- ABA 2: LANÇAR (MANTIDA) ---
+            with r2:
+                st.write("**Células sem Visitantes**")
+                df_rv = df_v_base[df_v_base['Data'].isin(ultimas_2_datas)]
+                fals_v = df_rv.groupby('Líder')['Vis_Celula'].sum().reset_index()
+                list_vv = fals_v[fals_v['Vis_Celula'] == 0]
+                if not list_vv.empty:
+                    for _, row in list_vv.iterrows():
+                        st.markdown(f'<div class="radar-card-vis">⚠️ Célula <b>{row["Líder"]}</b> (0 visitantes)</div>', unsafe_allow_html=True)
+                else: st.success("Células frutíferas!")
+        else:
+            st.info("Os radares serão ativados após 2 semanas de dados.")
+
+# --- ABAS DE APOIO ---
 with tab_lanc:
-    if not lideres_lista:
-        st.info("Cadastre células na aba 'GESTÃO'.")
+    st.subheader("📝 Chamada")
+    if not lideres_lista: st.info("Cadastre células na aba GESTÃO.")
     else:
-        st.subheader("📝 Chamada Mobile")
         la, lb, lc = st.columns(3)
-        mes_sel = la.selectbox("Mês", MESES_NOMES, key="m_l")
-        data_sel = lb.selectbox("Sábado", get_sabados(mes_sel), format_func=lambda x: x.strftime('%d/%m'), key="d_l")
-        lider_sel = lc.selectbox("Líder", lideres_lista, key="l_l")
-        membros_do_lider = st.session_state.membros_cadastrados.get(lider_sel, {})
-        for nome, tipo in membros_do_lider.items():
-            key_cel, key_cul = f"cel_{lider_sel}_{nome}_{data_sel}", f"cul_{lider_sel}_{nome}_{data_sel}"
-            if key_cel not in st.session_state: st.session_state[key_cel] = False
-            if key_cul not in st.session_state: st.session_state[key_cul] = False
-            st.markdown(f'<div class="member-card"><b>{nome}</b> <small>({tipo})</small></div>', unsafe_allow_html=True)
+        m_s = la.selectbox("Mês", MESES_NOMES, key="ms")
+        d_s = lb.selectbox("Sábado", get_sabados(m_s), format_func=lambda x: x.strftime('%d/%m'), key="ds")
+        l_s = lc.selectbox("Líder", lideres_lista, key="ls")
+        membros = st.session_state.membros_cadastrados.get(l_s, {})
+        for n, t in membros.items():
+            k_ce, k_cu = f"ce_{l_s}_{n}_{d_s}", f"cu_{l_s}_{n}_{d_s}"
+            if k_ce not in st.session_state: st.session_state[k_ce] = False
+            if k_cu not in st.session_state: st.session_state[k_cu] = False
+            st.markdown(f'<div class="member-card"><b>{n}</b> ({t})</div>', unsafe_allow_html=True)
             b1, b2 = st.columns(2)
-            if b1.button(f"🏠 Célula: {'✅' if st.session_state[key_cel] else '❌'}", key=f"btn_cel_{nome}_{data_sel}", use_container_width=True):
-                st.session_state[key_cel] = not st.session_state[key_cel]; st.rerun()
-            if b2.button(f"⛪ Culto: {'✅' if st.session_state[key_cul] else '❌'}", key=f"btn_cul_{nome}_{data_sel}", use_container_width=True):
-                st.session_state[key_cul] = not st.session_state[key_cul]; st.rerun()
-        st.write("---")
+            if b1.button(f"Célula: {'✅' if st.session_state[k_ce] else '❌'}", key=f"bce_{n}_{d_s}", use_container_width=True):
+                st.session_state[k_ce] = not st.session_state[k_ce]; st.rerun()
+            if b2.button(f"Culto: {'✅' if st.session_state[k_cu] else '❌'}", key=f"bcu_{n}_{d_s}", use_container_width=True):
+                st.session_state[k_cu] = not st.session_state[k_cu]; st.rerun()
         v1, v2 = st.columns(2)
-        vis_cel = v1.number_input("Visitantes Célula", 0)
-        vis_cul = v2.number_input("Visitantes Culto", 0)
-        if st.button("💾 SALVAR CHAMADA", use_container_width=True, type="primary"):
-            dt = pd.to_datetime(data_sel)
-            novos = [{"Data": dt, "Líder": lider_sel, "Nome": n, "Tipo": t, "Célula": 1 if st.session_state[f"cel_{lider_sel}_{n}_{data_sel}"] else 0, "Culto": 1 if st.session_state[f"cul_{lider_sel}_{n}_{data_sel}"] else 0} for n, t in membros_do_lider.items()]
-            st.session_state.db = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt) & (st.session_state.db['Líder']==lider_sel))], pd.DataFrame(novos)], ignore_index=True)
-            v_df = pd.DataFrame([{"Data": dt, "Líder": lider_sel, "Vis_Celula": vis_cel, "Vis_Culto": vis_cul}])
-            st.session_state.db_visitantes = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt) & (st.session_state.db_visitantes['Líder']==lider_sel))], v_df], ignore_index=True)
+        vi_ce = v1.number_input("Vis. Célula", 0, key="vi_ce")
+        vi_cu = v2.number_input("Vis. Culto", 0, key="vi_cu")
+        if st.button("💾 SALVAR", use_container_width=True, type="primary"):
+            dt = pd.to_datetime(d_s)
+            novos = [{"Data": dt, "Líder": l_s, "Nome": n, "Tipo": t, "Célula": 1 if st.session_state[f"ce_{l_s}_{n}_{d_s}"] else 0, "Culto": 1 if st.session_state[f"cu_{l_s}_{n}_{d_s}"] else 0} for n, t in membros.items()]
+            st.session_state.db = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt) & (st.session_state.db['Líder']==l_s))], pd.DataFrame(novos)], ignore_index=True)
+            v_df = pd.DataFrame([{"Data": dt, "Líder": l_s, "Vis_Celula": vi_ce, "Vis_Culto": vi_cu}])
+            st.session_state.db_visitantes = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt) & (st.session_state.db_visitantes['Líder']==l_s))], v_df], ignore_index=True)
             st.success("Salvo!"); st.balloons()
 
-# --- ABA 3: RELATÓRIO OB (ATUALIZADA) ---
 with tab_ob:
     st.write("### 📋 Relatório Semanal Detalhado")
     if not st.session_state.db.empty:
-        # 1. Agrupar dados de Membros e FAs
-        df_group = st.session_state.db.groupby(['Data', 'Tipo']).agg({'Célula':'sum', 'Culto':'sum'}).reset_index()
-        
-        # 2. Pivotar para ter colunas separadas por Tipo
-        df_pivot = df_group.pivot(index='Data', columns='Tipo', values=['Célula', 'Culto']).fillna(0).astype(int)
-        
-        # Achatar os nomes das colunas após o pivot
-        df_pivot.columns = [f'{col[0]}_{col[1]}' for col in df_pivot.columns]
-        df_pivot = df_pivot.reset_index()
-        
-        # 3. Adicionar Visitantes
-        df_v_sum = st.session_state.db_visitantes.groupby('Data').agg({'Vis_Celula':'sum', 'Vis_Culto':'sum'}).reset_index()
-        
-        # 4. Mesclar tudo
-        df_final = pd.merge(df_pivot, df_v_sum, on='Data', how='left').fillna(0)
-        df_final['Data'] = df_final['Data'].dt.strftime('%d/%m/%Y')
-        
-        # Organizar e renomear colunas para o usuário
-        col_map = {
-            'Data': 'Sábado',
-            'Célula_Membro': 'Célula: Membros',
-            'Célula_FA': 'Célula: FA',
-            'Vis_Celula': 'Célula: Visitantes',
-            'Culto_Membro': 'Culto: Membros',
-            'Culto_FA': 'Culto: FA',
-            'Vis_Culto': 'Culto: Visitantes'
-        }
-        # Garantir que todas as colunas existem antes de renomear
-        cols_presentes = [c for c in col_map.keys() if c in df_final.columns]
-        df_relatorio = df_final[cols_presentes].rename(columns=col_map)
-        
-        st.dataframe(df_relatorio, use_container_width=True, hide_index=True)
-        
-        # Botão para baixar em Excel/CSV
-        csv = df_relatorio.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Baixar Relatório (CSV)", csv, "relatorio_ob.csv", "text/csv")
-    else:
-        st.info("Nenhum dado lançado para gerar o relatório.")
+        df_g = st.session_state.db.groupby(['Data', 'Tipo']).agg({'Célula':'sum', 'Culto':'sum'}).reset_index()
+        df_p = df_g.pivot(index='Data', columns='Tipo', values=['Célula', 'Culto']).fillna(0).astype(int)
+        df_p.columns = [f'{col[0]}_{col[1]}' for col in df_p.columns]
+        df_v = st.session_state.db_visitantes.groupby('Data').agg({'Vis_Celula':'sum', 'Vis_Culto':'sum'}).reset_index()
+        df_f = pd.merge(df_p.reset_index(), df_v, on='Data', how='left').fillna(0)
+        df_f['Data'] = df_f['Data'].dt.strftime('%d/%m/%Y')
+        st.dataframe(df_f, use_container_width=True, hide_index=True)
 
-# --- ABA 4: GESTÃO (MANTIDA) ---
 with tab_gestao:
     st.header("⚙️ Gestão")
-    with st.expander("📂 Células"):
-        c1, c2 = st.columns(2)
-        with c1:
-            nova = st.text_input("Novo Líder")
-            if st.button("➕ Adicionar"):
-                if nova: st.session_state.membros_cadastrados[nova] = {}; st.rerun()
-        with c2:
-            if lideres_lista:
-                rem = st.selectbox("Remover Célula", lideres_lista)
-                if st.button("🗑️ Remover"): del st.session_state.membros_cadastrados[rem]; st.rerun()
+    n_c = st.text_input("Novo Líder")
+    if st.button("Adicionar Célula"):
+        if n_c: st.session_state.membros_cadastrados[n_c] = {}; st.rerun()
     if lideres_lista:
-        sel = st.selectbox("Editar Célula:", lideres_lista)
-        c3, c4 = st.columns(2)
-        with c3:
-            n_p = st.text_input("Nome")
-            t_p = st.radio("Categoria", ["Membro", "FA"], horizontal=True)
-            if st.button("✅ Salvar Pessoa"): 
-                if n_p: st.session_state.membros_cadastrados[sel][n_p] = t_p; st.rerun()
-        with c4:
-            lista_p = list(st.session_state.membros_cadastrados[sel].keys())
-            p_r = st.selectbox("Pessoa para remover:", lista_p if lista_p else ["Vazio"])
-            if st.button("❌ Excluir Pessoa"): del st.session_state.membros_cadastrados[sel][p_r]; st.rerun()
+        s_c = st.selectbox("Editar:", lideres_lista)
+        nm = st.text_input("Nome da Pessoa")
+        tm = st.radio("Tipo", ["Membro", "FA"], horizontal=True)
+        if st.button("Salvar Pessoa"):
+            if nm: st.session_state.membros_cadastrados[s_c][nm] = tm; st.rerun()
+        if st.button("Excluir Célula"):
+            del st.session_state.membros_cadastrados[s_c]; st.rerun()
