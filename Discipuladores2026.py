@@ -20,14 +20,15 @@ st.markdown("""
         padding: 15px; border-radius: 12px; border: 1px solid #334155;
         text-align: center; margin-bottom: 10px;
     }
-    .metric-value { color: #00D4FF; font-size: 24px; font-weight: 800; }
+    .metric-value-cel { color: #00D4FF; font-size: 24px; font-weight: 800; }
+    .metric-value-cul { color: #EF4444; font-size: 24px; font-weight: 800; }
     .member-card {
         background: #1E293B; padding: 12px; border-radius: 15px;
         border: 1px solid #334155; margin-top: 15px;
     }
     .radar-card { 
         background: rgba(239, 68, 68, 0.15); border-left: 5px solid #EF4444; 
-        padding: 12px; border-radius: 8px; margin-bottom: 10px; font-size: 14px;
+        padding: 15px; border-radius: 8px; margin-top: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -54,7 +55,7 @@ def get_sabados(mes_nome, ano=2026):
 
 lideres_lista = sorted(list(st.session_state.membros_cadastrados.keys()))
 
-# --- 3. INTERFACE PRINCIPAL ---
+# --- 3. INTERFACE ---
 st.markdown('<p class="main-title">🛡️ DISTRITO PRO 2026</p>', unsafe_allow_html=True)
 lids_f = st.multiselect("Filtrar Células:", lideres_lista, default=lideres_lista)
 
@@ -63,17 +64,16 @@ tab_dash, tab_lanc, tab_ob, tab_gestao = st.tabs(["📊 DASHBOARD", "📝 LANÇA
 # --- ABA 1: DASHBOARD ---
 with tab_dash:
     if st.session_state.db.empty:
-        st.info("💡 Lance os dados na aba 'LANÇAR' para ver os indicadores.")
+        st.info("💡 Sem dados. Lance as chamadas para ativar o Dashboard.")
     elif not lids_f:
-        st.warning("Selecione uma célula.")
+        st.warning("Selecione uma célula para analisar.")
     else:
-        mes_dash = st.selectbox("📅 Analisar Mês:", MESES_NOMES, index=date.today().month - 1)
+        mes_dash = st.selectbox("📅 Escolha o Mês:", MESES_NOMES, index=date.today().month - 1)
         mes_num = MESES_MAP[mes_dash]
         
         df_base = st.session_state.db[st.session_state.db['Líder'].isin(lids_f)]
         df_v_base = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'].isin(lids_f)]
         
-        # Filtro do mês selecionado
         df_mes = df_base[df_base['Data'].dt.month == mes_num]
         df_v_mes = df_v_base[df_v_base['Data'].dt.month == mes_num]
 
@@ -82,92 +82,95 @@ with tab_dash:
             df_u = df_mes[df_mes['Data'] == u_dt]
             df_v_u = df_v_mes[df_v_mes['Data'] == u_dt] if not df_v_mes.empty else pd.DataFrame()
 
+            # --- BLOCO CÉLULA ---
             st.write(f"#### 🏠 Frequência na Célula ({u_dt.strftime('%d/%m')})")
             c1, c2, c3 = st.columns(3)
             total_m_base = sum([list(st.session_state.membros_cadastrados[l].values()).count("Membro") for l in lids_f])
             
-            c1.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">MEMBROS</p><p class="metric-value">{int(df_u[df_u["Tipo"]=="Membro"]["Célula"].sum())} / {total_m_base}</p></div>', unsafe_allow_html=True)
-            c2.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">FA (PRESENTE)</p><p class="metric-value">{int(df_u[df_u["Tipo"]=="FA"]["Célula"].sum())}</p></div>', unsafe_allow_html=True)
-            c3.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">VISITANTES</p><p class="metric-value">{int(df_v_u["Vis_Celula"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
+            c1.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">MEMBROS</p><p class="metric-value-cel">{int(df_u[df_u["Tipo"]=="Membro"]["Célula"].sum())} / {total_m_base}</p></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">FA (PRESENTE)</p><p class="metric-value-cel">{int(df_u[df_u["Tipo"]=="FA"]["Célula"].sum())}</p></div>', unsafe_allow_html=True)
+            c3.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">VISITANTES</p><p class="metric-value-cel">{int(df_v_u["Vis_Celula"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
 
-            # --- GRÁFICO SEMANAL (APENAS SÁBADOS) ---
+            # --- BLOCO CULTO ---
+            st.write(f"#### ⛪ Frequência no Culto ({u_dt.strftime('%d/%m')})")
+            c4, c5, c6 = st.columns(3)
+            c4.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">MEMBROS</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="Membro"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
+            c5.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">FA (PRESENTE)</p><p class="metric-value-cul">{int(df_u[df_u["Tipo"]=="FA"]["Culto"].sum())}</p></div>', unsafe_allow_html=True)
+            c6.markdown(f'<div class="metric-card"><p style="color:#94A3B8; font-size:12px">VISITANTES</p><p class="metric-value-cul">{int(df_v_u["Vis_Culto"].sum()) if not df_v_u.empty else 0}</p></div>', unsafe_allow_html=True)
+
+            # --- EVOLUÇÃO ---
             st.write(f"### 📈 Evolução Semanal - {mes_dash}")
             sabados_mes = get_sabados(mes_dash)
             df_s = df_mes.groupby('Data')[['Célula', 'Culto']].sum().reset_index()
-            
             fig_s = go.Figure()
             fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Célula'], name='Célula', line=dict(color='#00D4FF', width=4), mode='lines+markers'))
-            fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Culto'], name='Culto', line=dict(color='#FF4B4B', width=4), mode='lines+markers'))
-            
-            fig_s.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", height=300,
-                xaxis=dict(tickvals=sabados_mes, tickformat="%d/%m", title="Sábados"),
-                margin=dict(l=0, r=0, t=20, b=0)
-            )
+            fig_s.add_trace(go.Scatter(x=df_s['Data'], y=df_s['Culto'], name='Culto', line=dict(color='#EF4444', width=4), mode='lines+markers'))
+            fig_s.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", height=300, xaxis=dict(tickvals=sabados_mes, tickformat="%d/%m"))
             st.plotly_chart(fig_s, use_container_width=True)
 
-        # --- NOVO: DASHBOARD COMPARATIVO (MÊS ATUAL + 2 ANTERIORES) ---
+        # --- COMPARATIVO TRIMESTRAL ---
         st.divider()
-        st.write("### 📊 Comparativo Trimestral (Mês Selecionado vs 2 Anteriores)")
-        
-        # Lógica para pegar os 3 meses (ex: se Março, pega Jan, Fev, Mar)
-        meses_para_comparar = []
+        st.write("### 📊 Comparativo Mensal (Trimestre)")
+        meses_comp = []
         for i in range(2, -1, -1):
             idx = (mes_num - 1 - i)
-            if idx >= 0: meses_para_comparar.append(idx + 1)
+            if idx >= 0: meses_comp.append(idx + 1)
         
-        df_tri = df_base[df_base['Data'].dt.month.isin(meses_para_comparar)].copy()
+        df_tri = df_base[df_base['Data'].dt.month.isin(meses_comp)].copy()
         if not df_tri.empty:
             df_tri['Mês'] = df_tri['Data'].dt.month.map({v: k for k, v in MESES_MAP.items()})
-            # Garantir ordem cronológica no gráfico
-            df_tri['Mês'] = pd.Categorical(df_tri['Mês'], categories=MESES_NOMES, ordered=True)
-            
-            comp_m = df_tri.groupby('Mês')[['Célula', 'Culto']].sum().reset_index().dropna()
-            
-            fig_comp = px.bar(comp_m, x='Mês', y=['Célula', 'Culto'], barmode='group',
-                              color_discrete_map={"Célula": "#00D4FF", "Culto": "#FF4B4B"},
-                              height=350)
-            fig_comp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
+            comp_m = df_tri.groupby('Mês')[['Célula', 'Culto']].sum().reset_index()
+            fig_comp = px.bar(comp_m, x='Mês', y=['Célula', 'Culto'], barmode='group', color_discrete_map={"Célula": "#00D4FF", "Culto": "#EF4444"})
+            fig_comp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white", height=300)
             st.plotly_chart(fig_comp, use_container_width=True)
-        else:
-            st.info("Dados insuficientes para comparação trimestral.")
 
-# --- ABAS DE LANÇAMENTO, RELATÓRIO E GESTÃO (IGUAIS AO ANTERIOR) ---
+        # --- RADAR CRÍTICO ---
+        st.write("### 🚨 Radar Crítico (2 Faltas Seguidas na Célula)")
+        d_u_global = sorted(df_base['Data'].unique())
+        if len(d_u_global) >= 2:
+            df_r = df_base[df_base['Data'].isin(d_u_global[-2:])]
+            fals = df_r.groupby(['Nome', 'Líder'])['Célula'].sum().reset_index()
+            list_v = fals[fals['Célula'] == 0]
+            if not list_v.empty:
+                for _, row in list_v.iterrows():
+                    st.markdown(f'<div class="radar-card">🚩 <b>{row["Nome"]}</b> ({row["Líder"]}) está há 2 semanas sem ir à Célula!</div>', unsafe_allow_html=True)
+            else:
+                st.success("Tudo em ordem! Nenhuma falta dupla detectada.")
+        else:
+            st.info("O radar será ativado após o lançamento de 2 sábados.")
+
+# --- ABAS DE APOIO (LANÇAR, RELATÓRIO, GESTÃO) ---
 with tab_lanc:
     if not lideres_lista:
         st.info("Cadastre células na aba 'GESTÃO'.")
     else:
         st.subheader("📝 Chamada Mobile")
         la, lb, lc = st.columns(3)
-        mes_sel = la.selectbox("Mês", MESES_NOMES, key="m_sel")
-        data_sel = lb.selectbox("Sábado", get_sabados(mes_sel), format_func=lambda x: x.strftime('%d/%m'), key="d_sel")
-        lider_sel = lc.selectbox("Líder", lideres_lista, key="l_sel")
-        
+        mes_sel = la.selectbox("Mês", MESES_NOMES, key="m_l")
+        data_sel = lb.selectbox("Sábado", get_sabados(mes_sel), format_func=lambda x: x.strftime('%d/%m'), key="d_l")
+        lider_sel = lc.selectbox("Líder", lideres_lista, key="l_l")
         membros_do_lider = st.session_state.membros_cadastrados.get(lider_sel, {})
         for nome, tipo in membros_do_lider.items():
             key_cel, key_cul = f"cel_{lider_sel}_{nome}_{data_sel}", f"cul_{lider_sel}_{nome}_{data_sel}"
             if key_cel not in st.session_state: st.session_state[key_cel] = False
             if key_cul not in st.session_state: st.session_state[key_cul] = False
-            
-            st.markdown(f'<div class="member-card"><b>{nome}</b> <small style="color:#94A3B8">({tipo})</small></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="member-card"><b>{nome}</b> <small>({tipo})</small></div>', unsafe_allow_html=True)
             b1, b2 = st.columns(2)
-            if b1.button(f"🏠 Célula: {'✅' if st.session_state[key_cel] else '❌'}", key=f"btn_{key_cel}", use_container_width=True):
+            if b1.button(f"🏠 Célula: {'✅' if st.session_state[key_cel] else '❌'}", key=f"btn_cel_{nome}_{data_sel}", use_container_width=True):
                 st.session_state[key_cel] = not st.session_state[key_cel]; st.rerun()
-            if b2.button(f"⛪ Culto: {'✅' if st.session_state[key_cul] else '❌'}", key=f"btn_{key_cul}", use_container_width=True):
+            if b2.button(f"⛪ Culto: {'✅' if st.session_state[key_cul] else '❌'}", key=f"btn_cul_{nome}_{data_sel}", use_container_width=True):
                 st.session_state[key_cul] = not st.session_state[key_cul]; st.rerun()
-
         st.write("---")
         v1, v2 = st.columns(2)
         vis_cel = v1.number_input("Visitantes Célula", 0)
         vis_cul = v2.number_input("Visitantes Culto", 0)
-        
         if st.button("💾 SALVAR CHAMADA", use_container_width=True, type="primary"):
             dt = pd.to_datetime(data_sel)
             novos = [{"Data": dt, "Líder": lider_sel, "Nome": n, "Tipo": t, "Célula": 1 if st.session_state[f"cel_{lider_sel}_{n}_{data_sel}"] else 0, "Culto": 1 if st.session_state[f"cul_{lider_sel}_{n}_{data_sel}"] else 0} for n, t in membros_do_lider.items()]
             st.session_state.db = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt) & (st.session_state.db['Líder']==lider_sel))], pd.DataFrame(novos)], ignore_index=True)
             v_df = pd.DataFrame([{"Data": dt, "Líder": lider_sel, "Vis_Celula": vis_cel, "Vis_Culto": vis_cul}])
             st.session_state.db_visitantes = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt) & (st.session_state.db_visitantes['Líder']==lider_sel))], v_df], ignore_index=True)
-            st.success("Salvo!"); st.balloons()
+            st.success("Salvo com sucesso!"); st.balloons()
 
 with tab_ob:
     if not st.session_state.db.empty:
@@ -181,20 +184,21 @@ with tab_gestao:
         c1, c2 = st.columns(2)
         with c1:
             nova = st.text_input("Novo Líder")
-            if st.button("➕ Criar"):
+            if st.button("➕ Adicionar"):
                 if nova: st.session_state.membros_cadastrados[nova] = {}; st.rerun()
         with c2:
             if lideres_lista:
                 rem = st.selectbox("Remover Célula", lideres_lista)
-                if st.button("🗑️ Excluir"): del st.session_state.membros_cadastrados[rem]; st.rerun()
+                if st.button("🗑️ Remover"): del st.session_state.membros_cadastrados[rem]; st.rerun()
     if lideres_lista:
         sel = st.selectbox("Editar Célula:", lideres_lista)
         c3, c4 = st.columns(2)
         with c3:
             n_p = st.text_input("Nome")
-            t_p = st.radio("Tipo", ["Membro", "FA"], horizontal=True)
-            if st.button("✅ Salvar"): st.session_state.membros_cadastrados[sel][n_p] = t_p; st.rerun()
+            t_p = st.radio("Categoria", ["Membro", "FA"], horizontal=True)
+            if st.button("✅ Salvar Pessoa"): 
+                if n_p: st.session_state.membros_cadastrados[sel][n_p] = t_p; st.rerun()
         with c4:
-            lista = list(st.session_state.membros_cadastrados[sel].keys())
-            p_r = st.selectbox("Remover Pessoa:", lista if lista else ["Vazio"])
-            if st.button("❌ Excluir"): del st.session_state.membros_cadastrados[sel][p_r]; st.rerun()
+            lista_p = list(st.session_state.membros_cadastrados[sel].keys())
+            p_r = st.selectbox("Pessoa para remover:", lista_p if lista_p else ["Vazio"])
+            if st.button("❌ Excluir Pessoa"): del st.session_state.membros_cadastrados[sel][p_r]; st.rerun()
