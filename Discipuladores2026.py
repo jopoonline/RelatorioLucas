@@ -138,8 +138,8 @@ with tab_lanc:
 
     st.write("---")
     v1, v2 = st.columns(2)
-    vis_cel = v1.number_input("Novos na Célula", 0)
-    vis_cul = v2.number_input("Novos no Culto", 0)
+    vis_cel = v1.number_input("Visitantes na Célula", 0)
+    vis_cul = v2.number_input("Visitantes no Culto", 0)
     if st.button("💾 SALVAR CHAMADA", use_container_width=True, type="primary"):
         dt = pd.to_datetime(data_sel)
         novos_dados = [{"Data": dt, "Líder": lider_sel, "Nome": n, "Tipo": t, "Célula": 1 if st.session_state[f"cel_{lider_sel}_{n}_{data_sel}"] else 0, "Culto": 1 if st.session_state[f"cul_{lider_sel}_{n}_{data_sel}"] else 0} for n, t in membros_do_lider.items()]
@@ -180,4 +180,5 @@ with tab_gestao:
     with c4:
         lista = list(st.session_state.membros_cadastrados[sel].keys())
         p_r = st.selectbox("Remover:", lista if lista else ["Vazio"])
+
         if st.button("❌ Excluir Pessoa"): del st.session_state.membros_cadastrados[sel][p_r]; st.rerun()
