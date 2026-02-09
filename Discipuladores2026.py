@@ -86,11 +86,9 @@ with tab_dash:
         datas_disp = sorted(st.session_state.db['Data'].unique(), reverse=True)
         data_sel = st.selectbox("Escolha a Semana:", datas_disp, format_func=lambda x: pd.to_datetime(x).strftime('%d/%m/%Y'))
 
-        # --- FILTRO DE DADOS ---
         df_sem = st.session_state.db[(st.session_state.db['Data'] == data_sel) & (st.session_state.db['Líder'].isin(lids_f))]
         df_v_sem = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == data_sel) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
 
-        # --- MÉTRICAS (FORMATO X/Y) ---
         def get_count(tipo):
             total = sum([1 for l in lids_f for n, t in st.session_state.membros_cadastrados.get(l, {}).items() if t == tipo])
             freq_cel = df_sem[df_sem['Tipo'] == tipo]['Célula'].sum()
@@ -111,9 +109,7 @@ with tab_dash:
         c5.markdown(f'<div class="metric-box"><p class="metric-label">Visit. Célula</p><p class="metric-value">{v_cel}</p></div>', unsafe_allow_html=True)
         c6.markdown(f'<div class="metric-box"><p class="metric-label">Visit. Culto</p><p class="metric-value">{v_cul}</p></div>', unsafe_allow_html=True)
 
-        # --- DASHBOARDS AZUIS ---
         col_graf, col_alert = st.columns([2, 1])
-        
         with col_graf:
             st.write("#### Evolução Semanal (Presença Total)")
             df_l_sem = df_sem.groupby('Líder')[['Célula', 'Culto']].sum().reset_index()
@@ -125,26 +121,23 @@ with tab_dash:
             
             st.write("#### Evolução Mensal")
             df_ev = st.session_state.db[st.session_state.db['Líder'].isin(lids_f)].groupby('Data')[['Célula', 'Culto']].sum().reset_index()
-            fig_mes = px.line(df_ev, x='Data', y=['Célula', 'Culto'], color_discrete_sequence=['#38BDF8', '#0284C7'])
+            fig_mes = px.line(df_ev, x='Data', y=['Célula', 'Culto'], markers=True, color_discrete_sequence=['#38BDF8', '#0284C7'])
             fig_mes.update_layout(template="plotly_dark", height=250)
             st.plotly_chart(fig_mes, use_container_width=True)
 
         with col_alert:
             st.write("#### ⚠️ Alertas e Atenção")
-            # Faltas
             for lider in lids_f:
                 df_h = st.session_state.db[st.session_state.db['Líder'] == lider].sort_values('Data', ascending=False)
                 for m in df_h['Nome'].unique():
                     u = df_h[df_h['Nome'] == m].head(2)
                     if len(u) == 2 and u['Célula'].sum() == 0:
                         st.markdown(f'<div class="warning-box">🚨 {m} ({lider}): Faltou 2x na Célula</div>', unsafe_allow_html=True)
-            # Visitantes
             for lider in lids_f:
                 df_v_h = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'] == lider].sort_values('Data', ascending=False).head(2)
                 if len(df_v_h) == 2 and df_v_h['Vis_Celula'].sum() == 0:
                     st.markdown(f'<div class="warning-box">📉 {lider}: 0 Visitantes nas últimas 2 semanas</div>', unsafe_allow_html=True)
 
-# --- ABA RELATÓRIO OB ---
 with tab_ob:
     st.subheader("📋 Relatório por Célula")
     if not st.session_state.db.empty:
@@ -152,4 +145,58 @@ with tab_ob:
         for l in lids_f:
             m_total = len(st.session_state.membros_cadastrados.get(l, {}))
             d_l = st.session_state.db[(st.session_state.db['Líder'] == l) & (st.session_state.db['Data'] == data_sel)]
-            ob_res.append({"Célula": l, "Total Membros": m_total, "Presença Célula": d_l['Célula'].sum(), "
+            ob_res.append({"Célula": l, "Total Membros": m_total, "Pres. Célula": d_l['Célula'].sum(), "Pres. Culto": d_l['Culto'].sum()})
+        st.dataframe(pd.DataFrame(ob_res), use_container_width=True)
+
+with tab_lanc:
+    if not st.session_state.membros_cadastrados:
+        st.warning("Cadastre líderes em GESTÃO.")
+    else:
+        ca, cb, cc = st.columns(3)
+        m_s = ca.selectbox("Mês", MESES_NOMES, key="m_l")
+        d_s = cb.selectbox("Data", get_sabados(m_s), format_func=lambda x: x.strftime('%d/%m'), key="d_l")
+        l_s = cc.selectbox("Líder", sorted(st.session_state.membros_cadastrados.keys()), key="l_l")
+        
+        st.write("### 👥 Visitantes")
+        va, vb = st.columns(2)
+        v_cel_in = va.number_input("Visitantes Célula", min_value=0, key="vc_in")
+        v_cul_in = vb.number_input("Visitantes Culto", min_value=0, key="vu_in")
+        
+        st.write("### ✅ Chamada")
+        mem = st.session_state.membros_cadastrados[l_s]
+        novos = []
+        for n, t in mem.items():
+            c_n, c_e, c_u = st.columns([2,1,1])
+            c_n.write(f"**{n}** ({t})")
+            p_e = c_e.checkbox("Célula", key=f"e_{n}_{d_s}")
+            p_u = c_u.checkbox("Culto", key=f"u_{n}_{d_s}")
+            novos.append({"Data": d_s, "Líder": l_s, "Nome": n, "Tipo": t, "Célula": 1 if p_e else 0, "Culto": 1 if p_u else 0})
+            
+        if st.button("💾 SALVAR TUDO", use_container_width=True, type="primary"):
+            df_cl = st.session_state.db[~((st.session_state.db['Data']==d_s) & (st.session_state.db['Líder']==l_s))]
+            st.session_state.db = pd.concat([df_cl, pd.DataFrame(novos)])
+            conn.update(spreadsheet=URL_PLANILHA, worksheet="Presencas", data=st.session_state.db)
+            df_vc = st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==d_s) & (st.session_state.db_visitantes['Líder']==l_s))]
+            st.session_state.db_visitantes = pd.concat([df_vc, pd.DataFrame([{"Data": d_s, "Líder": l_s, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
+            conn.update(spreadsheet=URL_PLANILHA, worksheet="Visitantes", data=st.session_state.db_visitantes)
+            st.cache_data.clear()
+            st.success("Sincronizado!")
+            st.rerun()
+
+with tab_gestao:
+    st.write("### ⚙️ Gestão")
+    n_l = st.text_input("Novo Líder")
+    if st.button("Criar Célula"):
+        if n_l:
+            st.session_state.membros_cadastrados[n_l] = {}
+            sincronizar_membros()
+            st.rerun()
+    st.divider()
+    if st.session_state.membros_cadastrados:
+        l_sel = st.selectbox("Célula:", sorted(st.session_state.membros_cadastrados.keys()))
+        n_m = st.text_input("Nome")
+        t_m = st.radio("Tipo", ["Membro", "FA"], horizontal=True)
+        if st.button("Salvar Membro"):
+            st.session_state.membros_cadastrados[l_sel][n_m] = t_m
+            sincronizar_membros()
+            st.rerun()
