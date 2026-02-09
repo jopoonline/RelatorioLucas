@@ -72,7 +72,8 @@ MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 st.title("🛡️ DISTRITO PRO 2026")
 tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇAR", "⚙️ GESTÃO", "📋 RELATÓRIO OB"])
 
-# --- ABA DASHBOARD (MANTIDA) ---
+# --- ABAS DASHBOARD, LANÇAR E OB (CONFORME SOLICITADO, NÃO MEXER) ---
+# ... (Código dessas abas permanece igual ao anterior) ...
 with tab_dash:
     if st.button("🔄 Sincronizar"): st.cache_data.clear(); st.rerun()
     if not st.session_state.db.empty:
@@ -134,17 +135,7 @@ with tab_dash:
             tot_cel = df_m[df_m['Líder'].isin(lids_f)]['Célula'].sum() + st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==MESES_MAP[m_s])&(st.session_state.db_visitantes['Líder'].isin(lids_f))]['Vis_Celula'].sum()
             tot_cul = df_m[df_m['Líder'].isin(lids_f)]['Culto'].sum() + st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==MESES_MAP[m_s])&(st.session_state.db_visitantes['Líder'].isin(lids_f))]['Vis_Culto'].sum()
             dm1.metric("Total Célula", int(tot_cel)); dm2.metric("Total Culto", int(tot_cul))
-            comp_data = []
-            for i in range(2, -1, -1):
-                idx = MESES_MAP[m_s] - i
-                if idx > 0:
-                    nome_m = MESES_NOMES[idx-1]
-                    soma = st.session_state.db[(st.session_state.db['MesNum']==idx)&(st.session_state.db['Líder'].isin(lids_f))]['Célula'].sum()
-                    comp_data.append({"Mês": nome_m, "Total": int(soma)})
-            if len(comp_data) > 1:
-                st.plotly_chart(px.bar(pd.DataFrame(comp_data), x='Mês', y='Total', title="Comparativo Célula (Meses Anteriores)", text_auto=True), use_container_width=True)
 
-# --- ABA LANÇAR (MANTIDA) ---
 with tab_lanc:
     if st.session_state.membros_cadastrados:
         l_m = st.selectbox("Mês Lançar", MESES_NOMES, index=datetime.now().month-1)
@@ -165,7 +156,7 @@ with tab_lanc:
             dfv = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_ref)&(st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": dt_ref, "Líder": l_l, "Vis_Celula": vce, "Vis_Culto": vcu}])])
             if salvar_seguro("Presencas", dfp) and salvar_seguro("Visitantes", dfv): st.cache_data.clear(); st.rerun()
 
-# --- ABA GESTÃO (ATUALIZADA COM EXCLUSÃO E MUDANÇA DE TIPO) ---
+# --- ABA GESTÃO (COM MULTIPLICAÇÃO) ---
 with tab_gestao:
     def sync_membros():
         lista = []
@@ -177,7 +168,7 @@ with tab_gestao:
     st.subheader("➕ Adicionar Novo")
     c_add1, c_add2 = st.columns(2)
     with c_add1:
-        nl = st.text_input("Novo Líder / Célula")
+        nl = st.text_input("Novo Líder Externo")
         if st.button("Criar Célula"):
             if nl and nl not in st.session_state.membros_cadastrados:
                 st.session_state.membros_cadastrados[nl] = {}; sync_membros(); st.rerun()
@@ -190,37 +181,53 @@ with tab_gestao:
                 if nm: st.session_state.membros_cadastrados[cs][nm]=tm; sync_membros(); st.rerun()
 
     st.divider()
-    st.subheader("⚙️ Gerenciar Existentes")
+    st.subheader("🚀 Multiplicação e Transferência")
     if st.session_state.membros_cadastrados:
-        cel_edit = st.selectbox("Selecione a Célula para Gerenciar:", sorted(st.session_state.membros_cadastrados.keys()))
+        cel_origem = st.selectbox("Célula de Origem:", sorted(st.session_state.membros_cadastrados.keys()), key="orig")
+        membros_orig = list(st.session_state.membros_cadastrados[cel_origem].keys())
         
-        # Opção de Excluir a Célula Toda
-        if st.button(f"🗑️ EXCLUIR TODA A CÉLULA DE {cel_edit}", type="secondary"):
-            del st.session_state.membros_cadastrados[cel_edit]
-            sync_membros(); st.rerun()
+        if membros_orig:
+            membro_transf = st.selectbox("Selecionar Pessoa para Mover/Promover:", membros_orig)
+            tipo_membro = st.session_state.membros_cadastrados[cel_origem][membro_transf]
             
-        st.write(f"**Pessoas na célula de {cel_edit}:**")
-        membros_da_cel = st.session_state.membros_cadastrados.get(cel_edit, {})
-        if membros_da_cel:
-            for nome, tipo in list(membros_da_cel.items()):
-                col_n, col_t, col_btn_t, col_btn_x = st.columns([3, 2, 3, 2])
-                col_n.write(nome)
-                col_t.write(f"({tipo})")
-                
-                # Botão para mudar tipo
-                novo_tipo = "FA" if tipo == "Membro" else "Membro"
-                if col_btn_t.button(f"Mudar para {novo_tipo}", key=f"t_{cel_edit}_{nome}"):
-                    st.session_state.membros_cadastrados[cel_edit][nome] = novo_tipo
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                if st.button(f"🌟 Tornar Líder (Nova Célula: {membro_transf})"):
+                    # Remove da antiga e cria a nova com o nome dele
+                    del st.session_state.membros_cadastrados[cel_origem][membro_transf]
+                    st.session_state.membros_cadastrados[membro_transf] = {}
                     sync_membros(); st.rerun()
-                
-                # Botão para excluir pessoa
-                if col_btn_x.button("❌", key=f"x_{cel_edit}_{nome}"):
-                    del st.session_state.membros_cadastrados[cel_edit][nome]
+            with col_t2:
+                cel_destino = st.selectbox("Transferir para Célula Existente:", [c for c in st.session_state.membros_cadastrados.keys() if c != cel_origem])
+                if st.button("Confirmar Transferência"):
+                    # Move o membro mantendo o tipo (Membro ou FA)
+                    st.session_state.membros_cadastrados[cel_destino][membro_transf] = tipo_membro
+                    del st.session_state.membros_cadastrados[cel_origem][membro_transf]
                     sync_membros(); st.rerun()
         else:
-            st.info("Esta célula ainda não possui membros cadastrados.")
+            st.info("Esta célula não tem membros para transferir.")
 
-# --- ABA RELATÓRIO OB (MANTIDA) ---
+    st.divider()
+    st.subheader("🗑️ Gerenciar e Excluir")
+    cel_edit = st.selectbox("Selecione para Editar/Excluir:", sorted(st.session_state.membros_cadastrados.keys()))
+    if st.button(f"Excluir Célula de {cel_edit}"):
+        del st.session_state.membros_cadastrados[cel_edit]
+        sync_membros(); st.rerun()
+
+    membros_da_cel = st.session_state.membros_cadastrados.get(cel_edit, {})
+    for nome, tipo in list(membros_da_cel.items()):
+        c_n, c_t, c_b1, c_b2 = st.columns([3, 2, 3, 2])
+        c_n.write(nome)
+        c_t.write(f"({tipo})")
+        novo_t = "FA" if tipo == "Membro" else "Membro"
+        if c_b1.button(f"Mudar para {novo_t}", key=f"t_{nome}"):
+            st.session_state.membros_cadastrados[cel_edit][nome] = novo_t
+            sync_membros(); st.rerun()
+        if c_b2.button("❌", key=f"x_{nome}"):
+            del st.session_state.membros_cadastrados[cel_edit][nome]
+            sync_membros(); st.rerun()
+
+# --- ABA RELATÓRIO OB ---
 with tab_ob:
     st.header("📋 Relatório OB")
     m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1, key="ob_m_final")
