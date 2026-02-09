@@ -115,29 +115,56 @@ with tab_dash:
 
             col_graf, col_alert = st.columns([2, 1])
             with col_graf:
-                # GRÁFICO 1: FREQUÊNCIA POR LÍDER NA SEMANA
-                st.write("#### Frequência por Líder (Semana Atual)")
-                df_l_p = df_sem.groupby('Líder')[['Célula', 'Culto']].sum().reset_index()
-                df_l_v = df_v_sem.groupby('Líder')[['Vis_Celula']].sum().reset_index()
-                df_merge = pd.merge(df_l_p, df_l_v, on='Líder', how='left').fillna(0)
-                
-                fig_sem = go.Figure()
-                fig_sem.add_trace(go.Bar(x=df_merge['Líder'], y=df_merge['Célula'], name="Presença Célula", marker_color='#38BDF8'))
-                fig_sem.add_trace(go.Bar(x=df_merge['Líder'], y=df_merge['Vis_Celula'], name="Visitantes Célula", marker_color='#FACC15'))
-                fig_sem.update_layout(template="plotly_dark", height=320, barmode='group', margin=dict(l=10,r=10,b=0,t=40))
-                st.plotly_chart(fig_sem, use_container_width=True)
-                
-                # GRÁFICO 2: EVOLUÇÃO MENSAL COM RÓTULOS
-                st.write("#### Evolução Geral (Membros + Visitantes)")
-                df_ev_p = st.session_state.db[st.session_state.db['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
-                df_ev_v = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'].isin(lids_f)].groupby('Data')['Vis_Celula'].sum().reset_index()
-                df_ev_total = pd.merge(df_ev_p, df_ev_v, on='Data', how='outer').fillna(0).sort_values('Data')
+                # GRÁFICO 1: FREQUÊNCIA SEMANAL - CÉLULA (Linha azul)
+                st.write("#### Frequência Semanal - Célula (Membros+FA e Visitantes)")
+                df_mes_p = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Célula'].sum().reset_index()
+                df_mes_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
+                df_line_cel = pd.merge(df_mes_p, df_mes_v, on='Data', how='outer').fillna(0).sort_values('Data')
 
-                fig_mes = go.Figure()
-                fig_mes.add_trace(go.Scatter(x=df_ev_total['Data'], y=df_ev_total['Célula'], name="Presença Célula", mode='lines+markers+text', text=df_ev_total['Célula'], textposition="top center", line=dict(color='#38BDF8', width=3)))
-                fig_mes.add_trace(go.Scatter(x=df_ev_total['Data'], y=df_ev_total['Vis_Celula'], name="Visitantes Célula", mode='lines+markers+text', text=df_ev_total['Vis_Celula'], textposition="top center", line=dict(color='#FACC15', width=3)))
-                fig_mes.update_layout(template="plotly_dark", height=300, margin=dict(l=10,r=10,b=0,t=40))
-                st.plotly_chart(fig_mes, use_container_width=True)
+                fig_cel = go.Figure()
+                fig_cel.add_trace(go.Scatter(x=df_line_cel['Data'], y=df_line_cel['Célula'], name="Membros+FA", mode='lines+markers', line=dict(color='#38BDF8', width=4)))
+                fig_cel.add_trace(go.Scatter(x=df_line_cel['Data'], y=df_line_cel['Vis_Celula'], name="Visitantes", mode='lines+markers', line=dict(color='#60A5FA', width=2, dash='dot')))
+                fig_cel.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=20), xaxis=dict(tickformat="%d/%m", tickmode='array', tickvals=df_line_cel['Data']))
+                st.plotly_chart(fig_cel, use_container_width=True)
+
+                # GRÁFICO 2: FREQUÊNCIA SEMANAL - CULTO (Linha azul)
+                st.write("#### Frequência Semanal - Culto (Membros+FA e Visitantes)")
+                df_mes_p_u = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Culto'].sum().reset_index()
+                df_mes_v_u = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
+                df_line_cul = pd.merge(df_mes_p_u, df_mes_v_u, on='Data', how='outer').fillna(0).sort_values('Data')
+
+                fig_cul = go.Figure()
+                fig_cul.add_trace(go.Scatter(x=df_line_cul['Data'], y=df_line_cul['Culto'], name="Membros+FA", mode='lines+markers', line=dict(color='#1D4ED8', width=4)))
+                fig_cul.add_trace(go.Scatter(x=df_line_cul['Data'], y=df_line_cul['Vis_Culto'], name="Visitantes", mode='lines+markers', line=dict(color='#3B82F6', width=2, dash='dot')))
+                fig_cul.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=20), xaxis=dict(tickformat="%d/%m", tickmode='array', tickvals=df_line_cul['Data']))
+                st.plotly_chart(fig_cul, use_container_width=True)
+
+                # GRÁFICO 3: EVOLUÇÃO MENSAL (2 meses anteriores)
+                st.write("#### Evolução Mensal Retroativa (2 Meses Anteriores)")
+                mes_ref = MESES_MAP[mes_sel]
+                meses_anteriores = [(mes_ref - 2), (mes_ref - 1)]
+                meses_anteriores = [m if m > 0 else m + 12 for m in meses_anteriores] # Ajuste para virada de ano
+                
+                df_retro = st.session_state.db[(st.session_state.db['Data'].dt.month.isin(meses_anteriores)) & (st.session_state.db['Líder'].isin(lids_f))].copy()
+                if not df_retro.empty:
+                    df_retro['Mes_Num'] = df_retro['Data'].dt.month
+                    res_retro_p = df_retro.groupby('Mes_Num')['Célula'].sum().reset_index()
+                    
+                    df_retro_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month.isin(meses_anteriores)) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].copy()
+                    df_retro_v['Mes_Num'] = df_retro_v['Data'].dt.month
+                    res_retro_v = df_retro_v.groupby('Mes_Num')['Vis_Celula'].sum().reset_index()
+                    
+                    res_final = pd.merge(res_retro_p, res_retro_v, on='Mes_Num', how='outer').fillna(0)
+                    res_final['Mes_Nome'] = res_final['Mes_Num'].apply(lambda x: MESES_NOMES[x-1])
+                    res_final = res_final.sort_values('Mes_Num')
+
+                    fig_ev = go.Figure()
+                    fig_ev.add_trace(go.Scatter(x=res_final['Mes_Nome'], y=res_final['Célula'], name="Interno", mode='lines+markers+text', text=res_final['Célula'], textposition="top center", line=dict(color='#38BDF8', width=4)))
+                    fig_ev.add_trace(go.Scatter(x=res_final['Mes_Nome'], y=res_final['Vis_Celula'], name="Visitantes", mode='lines+markers+text', text=res_final['Vis_Celula'], textposition="top center", line=dict(color='#FACC15', width=3)))
+                    fig_ev.update_layout(template="plotly_dark", height=300, margin=dict(l=10,r=10,b=0,t=40))
+                    st.plotly_chart(fig_ev, use_container_width=True)
+                else:
+                    st.info("Sem dados dos meses anteriores para exibir evolução.")
 
             with col_alert:
                 st.write("#### 🚨 Alertas")
@@ -176,9 +203,9 @@ with tab_lanc:
             novos.append({"Data": d_l, "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if p_e else 0, "Culto": 1 if p_u else 0})
             
         if st.button("💾 SALVAR TUDO", use_container_width=True, type="primary"):
-            df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==d_l) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
+            df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==pd.to_datetime(d_l)) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
             conn.update(spreadsheet=URL_PLANILHA, worksheet="Presencas", data=df_p_new)
-            df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==d_l) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
+            df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==pd.to_datetime(d_l)) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
             conn.update(spreadsheet=URL_PLANILHA, worksheet="Visitantes", data=df_v_new)
             st.cache_data.clear()
             st.success("Salvo!")
