@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta, datetime
+import time  # <--- ADICIONADO PARA CORRIGIR O ERRO
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. CONFIGURAÇÃO ---
@@ -67,18 +68,15 @@ st.markdown("""<style>
     .stApp { background-color: #0F172A; color: #F8FAFC; } 
     .metric-box { background: #1E293B; padding: 15px; border-radius: 10px; border-top: 4px solid #0284C7; text-align: center; margin-bottom: 10px; } 
     .metric-value { font-size: 24px; font-weight: 800; color: #38BDF8; display: block; }
-    /* Estilo para a lista de chamada no celular */
-    .row-call { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #334155; }
-    .name-call { font-weight: 500; font-size: 16px; }
 </style>""", unsafe_allow_html=True)
 
 MESES_NOMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 
-st.title("Relatorio Discipulado Lucas e Rosana")
-tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 Frequencia da Célula", "⚙️ GESTÃO", "📋 Relatorio para Obreiro"])
+st.title("🛡️ DISTRITO PRO 2026")
+tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇAR", "⚙️ GESTÃO", "📋 RELATÓRIO OB"])
 
-# --- ABA DASHBOARD (MANTIDA) ---
+# --- ABA DASHBOARD (NÃO MEXER) ---
 with tab_dash:
     if st.button("🔄 Sincronizar"): st.cache_data.clear(); st.rerun()
     if not st.session_state.db.empty:
@@ -86,12 +84,12 @@ with tab_dash:
         lids_f = st.multiselect("Filtrar Células:", lids_atuais, default=lids_atuais)
         datas_u = sorted(st.session_state.db['Data_Ref'].unique(), reverse=True)
         if len(datas_u) >= 2:
-            st.subheader("🚨 Alertas para o Lider 🚨")
+            st.subheader("⚠️ Alertas de Frequência")
             d1, d2 = datas_u[0], datas_u[1]
             for lid in lids_f:
                 v1 = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==d1)&(st.session_state.db_visitantes['Líder']==lid)]['Vis_Celula'].sum()
                 v2 = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==d2)&(st.session_state.db_visitantes['Líder']==lid)]['Vis_Celula'].sum()
-                if v1 == 0 and v2 == 0: st.error(f"🚨 **{lid}**: Sem visitantes nas últimas 2 semanas.")
+                if v1 == 0 and v2 == 0: st.error(f"🚩 **{lid}**: Sem visitantes nas últimas 2 semanas.")
                 for n, t in st.session_state.membros_cadastrados.get(lid, {}).items():
                     p1 = st.session_state.db[(st.session_state.db['Data_Ref']==d1)&(st.session_state.db['Líder']==lid)&(st.session_state.db['Nome']==n)]['Célula'].sum()
                     p2 = st.session_state.db[(st.session_state.db['Data_Ref']==d2)&(st.session_state.db['Líder']==lid)&(st.session_state.db['Nome']==n)]['Célula'].sum()
@@ -160,7 +158,6 @@ with tab_lanc:
     if st.session_state.membros_cadastrados:
         l_m = st.selectbox("Mês Lançar", MESES_NOMES, index=datetime.now().month-1)
         
-        # Linha dupla para Data e Célula
         col_data, col_cel = st.columns(2)
         with col_data:
             datas_s = [date(2026, MESES_MAP[l_m], d) for d in range(1, 32) if (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).month == MESES_MAP[l_m] and (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).weekday() == 5]
@@ -169,23 +166,18 @@ with tab_lanc:
             l_l = st.selectbox("Sua Célula", sorted(st.session_state.membros_cadastrados.keys()))
         
         st.divider()
-        
-        # Cabeçalho da Lista
         ch1, ch2, ch3 = st.columns([2, 1, 1])
         ch1.markdown("**Pessoa**")
         ch2.markdown("🏠 **Célula**")
         ch3.markdown("⛪ **Culto**")
         
         novos = []
-        
-        # Linha do Líder
         c_n, c_ce, c_cu = st.columns([2, 1, 1])
         c_n.markdown(f"**{l_l}** (Líder)")
         lpce = c_ce.checkbox(" ", value=True, key="lpce")
         lpcu = c_cu.checkbox(" ", value=True, key="lpcu")
         novos.append({"Data": d_l.strftime('%d/%m/%Y'), "Líder": l_l, "Nome": l_l, "Tipo": "Liderança", "Célula": 1 if lpce else 0, "Culto": 1 if lpcu else 0})
         
-        # Linhas dos Membros/FA
         for n, t in st.session_state.membros_cadastrados.get(l_l, {}).items():
             c_n, c_ce, c_cu = st.columns([2, 1, 1])
             c_n.markdown(f"{n} <br><small>({t})</small>", unsafe_allow_html=True)
@@ -207,7 +199,7 @@ with tab_lanc:
                 time.sleep(1)
                 st.cache_data.clear(); st.rerun()
 
-# --- ABA GESTÃO (MANTIDA) ---
+# --- ABA GESTÃO (NÃO MEXER) ---
 with tab_gestao:
     def sync_membros():
         lista = []
@@ -251,7 +243,6 @@ with tab_gestao:
                         st.session_state.membros_cadastrados[cel_destino][membro_transf] = tipo_membro
                         del st.session_state.membros_cadastrados[cel_origem][membro_transf]
                         sync_membros(); st.rerun()
-        else: st.info("Esta célula não tem membros para transferir.")
     st.divider()
     st.subheader("🗑️ Gerenciar e Excluir")
     if st.session_state.membros_cadastrados:
@@ -268,7 +259,7 @@ with tab_gestao:
             if c_b2.button("❌", key=f"x_{nome}"):
                 del st.session_state.membros_cadastrados[cel_edit][nome]; sync_membros(); st.rerun()
 
-# --- ABA RELATÓRIO OB (MANTIDA) ---
+# --- ABA RELATÓRIO OB (NÃO MEXER) ---
 with tab_ob:
     st.header("📋 Relatório OB")
     m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1, key="ob_m_final")
@@ -301,5 +292,3 @@ with tab_ob:
                 else: ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = "❌ | ❌"
             cham_d.append(ln)
         st.dataframe(pd.DataFrame(cham_d), use_container_width=True, hide_index=True)
-
-
