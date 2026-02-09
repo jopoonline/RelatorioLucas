@@ -90,7 +90,6 @@ with tab_dash:
             datas_disp = sorted(df_mes_f['Data'].unique(), reverse=True)
             data_sel = col_s.selectbox("Selecione a Semana:", datas_disp, format_func=lambda x: x.strftime('%d/%m/%Y'))
 
-            # Processamento
             df_sem = st.session_state.db[(st.session_state.db['Data'] == data_sel) & (st.session_state.db['Líder'].isin(lids_f))]
             df_v_sem = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == data_sel) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
 
@@ -116,18 +115,28 @@ with tab_dash:
 
             col_graf, col_alert = st.columns([2, 1])
             with col_graf:
-                st.write("#### Frequência por Líder")
-                df_l_sem = df_sem.groupby('Líder')[['Célula', 'Culto']].sum().reset_index()
+                # GRÁFICO 1: FREQUÊNCIA POR LÍDER NA SEMANA
+                st.write("#### Frequência por Líder (Semana Atual)")
+                df_l_p = df_sem.groupby('Líder')[['Célula', 'Culto']].sum().reset_index()
+                df_l_v = df_v_sem.groupby('Líder')[['Vis_Celula']].sum().reset_index()
+                df_merge = pd.merge(df_l_p, df_l_v, on='Líder', how='left').fillna(0)
+                
                 fig_sem = go.Figure()
-                fig_sem.add_trace(go.Scatter(x=df_l_sem['Líder'], y=df_l_sem['Célula'], name="Célula", mode='lines+markers+text', text=df_l_sem['Célula'], textposition="top center", line=dict(color='#38BDF8', width=3)))
-                fig_sem.add_trace(go.Scatter(x=df_l_sem['Líder'], y=df_l_sem['Culto'], name="Culto", mode='lines+markers+text', text=df_l_sem['Culto'], textposition="top center", line=dict(color='#0284C7', width=3)))
-                fig_sem.update_layout(template="plotly_dark", height=320, margin=dict(l=10,r=10,b=0,t=40))
+                fig_sem.add_trace(go.Bar(x=df_merge['Líder'], y=df_merge['Célula'], name="Presença Célula", marker_color='#38BDF8'))
+                fig_sem.add_trace(go.Bar(x=df_merge['Líder'], y=df_merge['Vis_Celula'], name="Visitantes Célula", marker_color='#FACC15'))
+                fig_sem.update_layout(template="plotly_dark", height=320, barmode='group', margin=dict(l=10,r=10,b=0,t=40))
                 st.plotly_chart(fig_sem, use_container_width=True)
                 
-                st.write("#### Evolução Mensal")
-                df_ev = st.session_state.db[st.session_state.db['Líder'].isin(lids_f)].groupby('Data')[['Célula', 'Culto']].sum().reset_index()
-                fig_mes = px.line(df_ev, x='Data', y=['Célula', 'Culto'], markers=True, color_discrete_sequence=['#38BDF8', '#0284C7'])
-                fig_mes.update_layout(template="plotly_dark", height=280)
+                # GRÁFICO 2: EVOLUÇÃO MENSAL COM RÓTULOS
+                st.write("#### Evolução Geral (Membros + Visitantes)")
+                df_ev_p = st.session_state.db[st.session_state.db['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
+                df_ev_v = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'].isin(lids_f)].groupby('Data')['Vis_Celula'].sum().reset_index()
+                df_ev_total = pd.merge(df_ev_p, df_ev_v, on='Data', how='outer').fillna(0).sort_values('Data')
+
+                fig_mes = go.Figure()
+                fig_mes.add_trace(go.Scatter(x=df_ev_total['Data'], y=df_ev_total['Célula'], name="Presença Célula", mode='lines+markers+text', text=df_ev_total['Célula'], textposition="top center", line=dict(color='#38BDF8', width=3)))
+                fig_mes.add_trace(go.Scatter(x=df_ev_total['Data'], y=df_ev_total['Vis_Celula'], name="Visitantes Célula", mode='lines+markers+text', text=df_ev_total['Vis_Celula'], textposition="top center", line=dict(color='#FACC15', width=3)))
+                fig_mes.update_layout(template="plotly_dark", height=300, margin=dict(l=10,r=10,b=0,t=40))
                 st.plotly_chart(fig_mes, use_container_width=True)
 
             with col_alert:
@@ -175,7 +184,7 @@ with tab_lanc:
             st.success("Salvo!")
             st.rerun()
 
-# --- TAB GESTÃO (COM EDIÇÃO) ---
+# --- TAB GESTÃO ---
 with tab_gestao:
     st.subheader("⚙️ Cadastro")
     col1, col2 = st.columns(2)
@@ -196,13 +205,11 @@ with tab_gestao:
     st.subheader("🗑️ Área de Exclusão / Edição")
     col_ed1, col_ed2 = st.columns(2)
     with col_ed1:
-        st.write("**Editar ou Remover Pessoa**")
         l_ed = st.selectbox("Célula da Pessoa:", sorted(st.session_state.membros_cadastrados.keys()), key="l_ed")
         if st.session_state.membros_cadastrados[l_ed]:
             p_ed = st.selectbox("Selecione a Pessoa:", sorted(st.session_state.membros_cadastrados[l_ed].keys()))
             tipo_atual = st.session_state.membros_cadastrados[l_ed][p_ed]
             st.info(f"Tipo atual: {tipo_atual}")
-            
             ce1, ce2 = st.columns(2)
             if ce1.button(f"Mudar para {'FA' if tipo_atual == 'Membro' else 'Membro'}"):
                 st.session_state.membros_cadastrados[l_ed][p_ed] = "FA" if tipo_atual == "Membro" else "Membro"
@@ -211,7 +218,6 @@ with tab_gestao:
                 del st.session_state.membros_cadastrados[l_ed][p_ed]
                 sincronizar_membros(); st.rerun()
     with col_ed2:
-        st.write("**Remover Célula**")
         l_del = st.selectbox("Célula a excluir:", sorted(st.session_state.membros_cadastrados.keys()), key="l_del")
         if st.button("EXCLUIR CÉLULA INTEIRA", type="primary"):
             del st.session_state.membros_cadastrados[l_del]
