@@ -88,7 +88,7 @@ with tab_dash:
             st.warning(f"Sem dados em {mes_sel}.")
         else:
             datas_disp = sorted(df_mes_f['Data'].unique(), reverse=True)
-            data_sel = col_s.selectbox("Selecione a Semana:", datas_disp, format_func=lambda x: x.strftime('%d/%m/%Y'))
+            data_sel = col_s.selectbox("Selecione a Semana:", datas_disp, format_func=lambda x: pd.to_datetime(x).strftime('%d/%m/%Y'))
 
             df_sem = st.session_state.db[(st.session_state.db['Data'] == data_sel) & (st.session_state.db['Líder'].isin(lids_f))]
             df_v_sem = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == data_sel) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
@@ -104,7 +104,7 @@ with tab_dash:
             v_cel = int(df_v_sem['Vis_Celula'].sum())
             v_cul = int(df_v_sem['Vis_Culto'].sum())
 
-            st.write(f"### 📈 Resumo: {data_sel.strftime('%d/%m')}")
+            st.write(f"### 📈 Resumo: {pd.to_datetime(data_sel).strftime('%d/%m')}")
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.markdown(f'<div class="metric-box"><p class="metric-label">Membros Célula</p><p class="metric-value">{m_cel}</p></div>', unsafe_allow_html=True)
             c2.markdown(f'<div class="metric-box"><p class="metric-label">Membros Culto</p><p class="metric-value">{m_cul}</p></div>', unsafe_allow_html=True)
@@ -116,7 +116,7 @@ with tab_dash:
             col_graf, col_alert = st.columns([2, 1])
             with col_graf:
                 # GRÁFICO 1: FREQUÊNCIA SEMANAL - CÉLULA (Linha azul)
-                st.write("#### Frequência Semanal - Célula (Membros+FA e Visitantes)")
+                st.write("#### Frequência Semanal - Célula")
                 df_mes_p = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Célula'].sum().reset_index()
                 df_mes_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
                 df_line_cel = pd.merge(df_mes_p, df_mes_v, on='Data', how='outer').fillna(0).sort_values('Data')
@@ -128,7 +128,7 @@ with tab_dash:
                 st.plotly_chart(fig_cel, use_container_width=True)
 
                 # GRÁFICO 2: FREQUÊNCIA SEMANAL - CULTO (Linha azul)
-                st.write("#### Frequência Semanal - Culto (Membros+FA e Visitantes)")
+                st.write("#### Frequência Semanal - Culto")
                 df_mes_p_u = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Culto'].sum().reset_index()
                 df_mes_v_u = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
                 df_line_cul = pd.merge(df_mes_p_u, df_mes_v_u, on='Data', how='outer').fillna(0).sort_values('Data')
@@ -143,17 +143,15 @@ with tab_dash:
                 st.write("#### Evolução Mensal Retroativa (2 Meses Anteriores)")
                 mes_ref = MESES_MAP[mes_sel]
                 meses_anteriores = [(mes_ref - 2), (mes_ref - 1)]
-                meses_anteriores = [m if m > 0 else m + 12 for m in meses_anteriores] # Ajuste para virada de ano
+                meses_anteriores = [m if m > 0 else m + 12 for m in meses_anteriores]
                 
                 df_retro = st.session_state.db[(st.session_state.db['Data'].dt.month.isin(meses_anteriores)) & (st.session_state.db['Líder'].isin(lids_f))].copy()
                 if not df_retro.empty:
                     df_retro['Mes_Num'] = df_retro['Data'].dt.month
                     res_retro_p = df_retro.groupby('Mes_Num')['Célula'].sum().reset_index()
-                    
                     df_retro_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month.isin(meses_anteriores)) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].copy()
                     df_retro_v['Mes_Num'] = df_retro_v['Data'].dt.month
                     res_retro_v = df_retro_v.groupby('Mes_Num')['Vis_Celula'].sum().reset_index()
-                    
                     res_final = pd.merge(res_retro_p, res_retro_v, on='Mes_Num', how='outer').fillna(0)
                     res_final['Mes_Nome'] = res_final['Mes_Num'].apply(lambda x: MESES_NOMES[x-1])
                     res_final = res_final.sort_values('Mes_Num')
@@ -163,8 +161,6 @@ with tab_dash:
                     fig_ev.add_trace(go.Scatter(x=res_final['Mes_Nome'], y=res_final['Vis_Celula'], name="Visitantes", mode='lines+markers+text', text=res_final['Vis_Celula'], textposition="top center", line=dict(color='#FACC15', width=3)))
                     fig_ev.update_layout(template="plotly_dark", height=300, margin=dict(l=10,r=10,b=0,t=40))
                     st.plotly_chart(fig_ev, use_container_width=True)
-                else:
-                    st.info("Sem dados dos meses anteriores para exibir evolução.")
 
             with col_alert:
                 st.write("#### 🚨 Alertas")
@@ -203,9 +199,10 @@ with tab_lanc:
             novos.append({"Data": d_l, "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if p_e else 0, "Culto": 1 if p_u else 0})
             
         if st.button("💾 SALVAR TUDO", use_container_width=True, type="primary"):
-            df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==pd.to_datetime(d_l)) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
+            dt_l = pd.to_datetime(d_l)
+            df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_l) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
             conn.update(spreadsheet=URL_PLANILHA, worksheet="Presencas", data=df_p_new)
-            df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==pd.to_datetime(d_l)) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
+            df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_l) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
             conn.update(spreadsheet=URL_PLANILHA, worksheet="Visitantes", data=df_v_new)
             st.cache_data.clear()
             st.success("Salvo!")
@@ -230,25 +227,30 @@ with tab_gestao:
 
     st.divider()
     st.subheader("🗑️ Área de Exclusão / Edição")
-    col_ed1, col_ed2 = st.columns(2)
-    with col_ed1:
-        l_ed = st.selectbox("Célula da Pessoa:", sorted(st.session_state.membros_cadastrados.keys()), key="l_ed")
-        if st.session_state.membros_cadastrados[l_ed]:
-            p_ed = st.selectbox("Selecione a Pessoa:", sorted(st.session_state.membros_cadastrados[l_ed].keys()))
-            tipo_atual = st.session_state.membros_cadastrados[l_ed][p_ed]
-            st.info(f"Tipo atual: {tipo_atual}")
-            ce1, ce2 = st.columns(2)
-            if ce1.button(f"Mudar para {'FA' if tipo_atual == 'Membro' else 'Membro'}"):
-                st.session_state.membros_cadastrados[l_ed][p_ed] = "FA" if tipo_atual == "Membro" else "Membro"
-                sincronizar_membros(); st.rerun()
-            if ce2.button("Excluir Pessoa", type="primary"):
-                del st.session_state.membros_cadastrados[l_ed][p_ed]
-                sincronizar_membros(); st.rerun()
-    with col_ed2:
-        l_del = st.selectbox("Célula a excluir:", sorted(st.session_state.membros_cadastrados.keys()), key="l_del")
-        if st.button("EXCLUIR CÉLULA INTEIRA", type="primary"):
-            del st.session_state.membros_cadastrados[l_del]
-            sincronizar_membros(); st.rerun()
+    lids_lista = sorted(st.session_state.membros_cadastrados.keys())
+    if lids_lista:
+        col_ed1, col_ed2 = st.columns(2)
+        with col_ed1:
+            l_ed = st.selectbox("Célula da Pessoa:", lids_lista, key="l_ed")
+            if l_ed in st.session_state.membros_cadastrados and st.session_state.membros_cadastrados[l_ed]:
+                p_ed = st.selectbox("Selecione a Pessoa:", sorted(st.session_state.membros_cadastrados[l_ed].keys()))
+                tipo_atual = st.session_state.membros_cadastrados[l_ed][p_ed]
+                st.info(f"Tipo atual: {tipo_atual}")
+                ce1, ce2 = st.columns(2)
+                if ce1.button(f"Mudar para {'FA' if tipo_atual == 'Membro' else 'Membro'}"):
+                    st.session_state.membros_cadastrados[l_ed][p_ed] = "FA" if tipo_atual == "Membro" else "Membro"
+                    sincronizar_membros(); st.rerun()
+                if ce2.button("Excluir Pessoa", type="primary"):
+                    del st.session_state.membros_cadastrados[l_ed][p_ed]
+                    sincronizar_membros(); st.rerun()
+            else:
+                st.write("Célula vazia.")
+        with col_ed2:
+            l_del = st.selectbox("Célula a excluir:", lids_lista, key="l_del")
+            if st.button("EXCLUIR CÉLULA INTEIRA", type="primary"):
+                if l_del in st.session_state.membros_cadastrados:
+                    del st.session_state.membros_cadastrados[l_del]
+                    sincronizar_membros(); st.rerun()
 
 # --- TAB RELATÓRIO OB ---
 with tab_ob:
@@ -257,7 +259,7 @@ with tab_ob:
     df_p_ob = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_ob]]
     if not df_p_ob.empty:
         for sem in sorted(df_p_ob['Data'].unique(), reverse=True):
-            st.write(f"#### 📅 Semana: {sem.strftime('%d/%m/%Y')}")
+            st.write(f"#### 📅 Semana: {pd.to_datetime(sem).strftime('%d/%m/%Y')}")
             dados_ob = []
             for lid in sorted(st.session_state.membros_cadastrados.keys()):
                 f_p = df_p_ob[(df_p_ob['Data'] == sem) & (df_p_ob['Líder'] == lid)]
