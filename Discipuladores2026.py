@@ -72,14 +72,13 @@ MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 st.title("🛡️ DISTRITO PRO 2026")
 tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇAR", "⚙️ GESTÃO", "📋 RELATÓRIO OB"])
 
-# --- ABA DASHBOARD (RESTAURADA) ---
+# --- ABA DASHBOARD ---
 with tab_dash:
     if st.button("🔄 Sincronizar"): st.cache_data.clear(); st.rerun()
     if not st.session_state.db.empty:
         lids_atuais = sorted(list(st.session_state.membros_cadastrados.keys()))
         lids_f = st.multiselect("Filtrar Células:", lids_atuais, default=lids_atuais)
         
-        # --- RESTAURAÇÃO DOS ALERTAS ---
         datas_u = sorted(st.session_state.db['Data_Ref'].unique(), reverse=True)
         if len(datas_u) >= 2:
             st.subheader("⚠️ Alertas de Frequência")
@@ -102,7 +101,6 @@ with tab_dash:
             df_s = df_m[(df_m['Data_Ref']==s_r) & (df_m['Líder'].isin(lids_f))]
             dv_s = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==s_r) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
             
-            # --- CARDS X/Y ---
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             def get_card_val(tipo, modo):
                 if tipo == "M":
@@ -122,10 +120,12 @@ with tab_dash:
             c5.markdown(f'<div class="metric-box">FA Culto<br><span class="metric-value">{get_card_val("FA","Culto")}</span></div>', unsafe_allow_html=True)
             c6.markdown(f'<div class="metric-box">Vis. Culto<br><span class="metric-value">{get_card_val("V","Culto")}</span></div>', unsafe_allow_html=True)
             
-            # --- RESTAURAÇÃO DOS GRÁFICOS DE LINHA ---
-            st.write("### 📈 Evolução Semanal (Membros+FA vs Visitantes)")
+            # --- TÍTULOS ATUALIZADOS AQUI ---
             cg1, cg2 = st.columns(2)
-            for col, modo, k in zip([cg1, cg2], ['Célula', 'Culto'], ['chart_cel', 'chart_cul']):
+            titulos = ["evolução semanal celula", "evolução semanal culto"]
+            
+            for col, modo, k, tit in zip([cg1, cg2], ['Célula', 'Culto'], ['chart_cel', 'chart_cul'], titulos):
+                col.write(f"### 📈 {tit}")
                 g_d = df_m[df_m['Líder'].isin(lids_f)].groupby('Data_Ref')[modo].sum().reset_index()
                 g_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==MESES_MAP[m_s])&(st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data_Ref')['Vis_Celula' if modo=='Célula' else 'Vis_Culto'].sum().reset_index()
                 mrg = pd.merge(g_d, g_v, on='Data_Ref', how='outer').fillna(0).sort_values('Data_Ref')
@@ -136,7 +136,6 @@ with tab_dash:
                 fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 col.plotly_chart(fig, use_container_width=True, key=k)
 
-            # --- RESTAURAÇÃO DO ACUMULADO E COMPARATIVO MENSAL ---
             st.divider()
             st.subheader(f"📊 Acumulado Mensal: {m_s}")
             dm1, dm2 = st.columns(2)
@@ -155,7 +154,7 @@ with tab_dash:
             if len(comp_data) > 1:
                 st.plotly_chart(px.bar(pd.DataFrame(comp_data), x='Mês', y='Total', title="Comparativo Célula (Meses Anteriores)", text_auto=True), use_container_width=True)
 
-# --- ABA LANÇAR (MANTIDA) ---
+# --- ABA LANÇAR ---
 with tab_lanc:
     if st.session_state.membros_cadastrados:
         l_m = st.selectbox("Mês Lançar", MESES_NOMES, index=datetime.now().month-1)
@@ -176,7 +175,7 @@ with tab_lanc:
             dfv = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_ref)&(st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": dt_ref, "Líder": l_l, "Vis_Celula": vce, "Vis_Culto": vcu}])])
             if salvar_seguro("Presencas", dfp) and salvar_seguro("Visitantes", dfv): st.cache_data.clear(); st.rerun()
 
-# --- ABA GESTÃO (MANTIDA) ---
+# --- ABA GESTÃO ---
 with tab_gestao:
     g1, g2 = st.columns(2)
     with g1:
@@ -201,10 +200,10 @@ with tab_gestao:
                         else: [lista.append({"Líder":ld,"Nome":n,"Tipo":t}) for n,t in ps.items()]
                     salvar_seguro("Membros", pd.DataFrame(lista)); st.rerun()
 
-# --- ABA RELATÓRIO OB (CHAMADA DUPLA MANTIDA) ---
+# --- ABA RELATÓRIO OB ---
 with tab_ob:
     st.header("📋 Relatório OB")
-    m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1, key="ob_m_sel")
+    m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1, key="ob_m_final")
     df_ob = st.session_state.db[st.session_state.db['MesNum'] == MESES_MAP[m_ob]]
     df_v_ob = st.session_state.db_visitantes[st.session_state.db_visitantes['MesNum'] == MESES_MAP[m_ob]]
     
@@ -223,7 +222,7 @@ with tab_ob:
         
         st.divider()
         st.subheader("🕵️ Chamada Detalhada (Célula | Culto)")
-        cel_sel = st.selectbox("Selecionar Célula:", sorted(st.session_state.membros_cadastrados.keys()), key="ob_c_sel")
+        cel_sel = st.selectbox("Selecionar Célula:", sorted(st.session_state.membros_cadastrados.keys()), key="ob_c_final")
         m_cel = [{"Nome": cel_sel, "Tipo": "Liderança"}] + [{"Nome": n, "Tipo": t} for n, t in st.session_state.membros_cadastrados.get(cel_sel, {}).items()]
         
         d_mes = sorted(df_ob['Data_Ref'].unique())
