@@ -75,8 +75,8 @@ st.markdown("""<style>
 MESES_NOMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 
-st.title("🛡️ DISTRITO PRO 2026")
-tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇAR", "⚙️ GESTÃO", "📋 RELATÓRIO OB"])
+st.title("Relatorio Discipulado Lucas e Rosana")
+tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 Frequencia da Célula", "⚙️ GESTÃO", "📋 Relatorio para Obreiro"])
 
 # --- ABA DASHBOARD (MANTIDA) ---
 with tab_dash:
@@ -86,7 +86,7 @@ with tab_dash:
         lids_f = st.multiselect("Filtrar Células:", lids_atuais, default=lids_atuais)
         datas_u = sorted(st.session_state.db['Data_Ref'].unique(), reverse=True)
         if len(datas_u) >= 2:
-            st.subheader("⚠️ Alertas de Frequência")
+            st.subheader("⚠️ Alertas para Lider ⚠️")
             d1, d2 = datas_u[0], datas_u[1]
             for lid in lids_f:
                 v1 = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==d1)&(st.session_state.db_visitantes['Líder']==lid)]['Vis_Celula'].sum()
@@ -301,3 +301,4 @@ with tab_ob:
                 else: ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = "❌ | ❌"
             cham_d.append(ln)
         st.dataframe(pd.DataFrame(cham_d), use_container_width=True, hide_index=True)
+
