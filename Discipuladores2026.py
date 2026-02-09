@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta, datetime
-import time  # <--- ADICIONADO PARA CORRIGIR O ERRO
+import time 
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. CONFIGURAÇÃO ---
@@ -76,7 +76,7 @@ MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 st.title("🛡️ DISTRITO PRO 2026")
 tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇAR", "⚙️ GESTÃO", "📋 RELATÓRIO OB"])
 
-# --- ABA DASHBOARD (NÃO MEXER) ---
+# --- ABA DASHBOARD ---
 with tab_dash:
     if st.button("🔄 Sincronizar"): st.cache_data.clear(); st.rerun()
     if not st.session_state.db.empty:
@@ -131,6 +131,8 @@ with tab_dash:
                 fig.add_trace(go.Scatter(x=mrg['D'], y=mrg.iloc[:,2], name='Visitantes', mode='lines+markers+text', text=mrg.iloc[:,2], textposition="bottom center"))
                 fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 col.plotly_chart(fig, use_container_width=True, key=k)
+
+            # --- CORREÇÃO: PERFORMANCE EM BARRAS (3 MESES) ---
             st.divider()
             st.subheader(f"📊 Performance: {m_s} e Meses Anteriores")
             idx_analise = MESES_MAP[m_s]
@@ -141,55 +143,51 @@ with tab_dash:
                     nome_m = MESES_NOMES[idx-1]
                     d_mes = st.session_state.db[(st.session_state.db['MesNum']==idx) & (st.session_state.db['Líder'].isin(lids_f))]
                     v_mes = st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==idx) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
+                    
                     val_fa = int(d_mes[d_mes['Tipo']=="FA"]['Célula'].sum())
-                    val_vis = int(v_mes['Vis_Celula'].sum())
                     val_mem = int(d_mes[d_mes['Tipo'].isin(['Membro','Liderança'])]['Célula'].sum())
-                    dados_comp.append({"Mês": nome_m, "Métrica": "Visitante + FA", "Valor": val_vis + val_fa})
+                    val_vis = int(v_mes['Vis_Celula'].sum())
+                    
+                    dados_comp.append({"Mês": nome_m, "Métrica": "Membro + FA", "Valor": val_mem + val_fa})
                     dados_comp.append({"Mês": nome_m, "Métrica": "Visitante", "Valor": val_vis})
-                    dados_comp.append({"Mês": nome_m, "Métrica": "Total Geral", "Valor": val_vis + val_fa + val_mem})
+                    dados_comp.append({"Mês": nome_m, "Métrica": "Total Geral", "Valor": val_mem + val_fa + val_vis})
             if dados_comp:
                 df_barras = pd.DataFrame(dados_comp)
-                fig_bar = px.bar(df_barras, x="Mês", y="Valor", color="Métrica", barmode="group", text_auto=True, color_discrete_map={"Visitante + FA": "#38BDF8", "Visitante": "#0284C7", "Total Geral": "#F8FAFC"}, height=400)
-                fig_bar.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color="#F8FAFC", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
+                fig_bar = px.bar(df_barras, x="Mês", y="Valor", color="Métrica", barmode="group", text_auto=True, 
+                                 color_discrete_map={"Membro + FA": "#38BDF8", "Visitante": "#0284C7", "Total Geral": "#F8FAFC"}, height=400)
+                fig_bar.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color="#F8FAFC", 
+                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
                 st.plotly_chart(fig_bar, use_container_width=True)
 
-# --- ABA LANÇAR (OTIMIZADA MOBILE) ---
+# --- ABA LANÇAR (MOBILE) ---
 with tab_lanc:
     if st.session_state.membros_cadastrados:
         l_m = st.selectbox("Mês Lançar", MESES_NOMES, index=datetime.now().month-1)
-        
         col_data, col_cel = st.columns(2)
         with col_data:
             datas_s = [date(2026, MESES_MAP[l_m], d) for d in range(1, 32) if (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).month == MESES_MAP[l_m] and (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).weekday() == 5]
             d_l = st.selectbox("Sábado", datas_s, format_func=lambda x: x.strftime('%d/%m'))
         with col_cel:
             l_l = st.selectbox("Sua Célula", sorted(st.session_state.membros_cadastrados.keys()))
-        
         st.divider()
         ch1, ch2, ch3 = st.columns([2, 1, 1])
-        ch1.markdown("**Pessoa**")
-        ch2.markdown("🏠 **Célula**")
-        ch3.markdown("⛪ **Culto**")
-        
+        ch1.markdown("**Pessoa**"); ch2.markdown("🏠 **Célula**"); ch3.markdown("⛪ **Culto**")
         novos = []
         c_n, c_ce, c_cu = st.columns([2, 1, 1])
         c_n.markdown(f"**{l_l}** (Líder)")
         lpce = c_ce.checkbox(" ", value=True, key="lpce")
         lpcu = c_cu.checkbox(" ", value=True, key="lpcu")
         novos.append({"Data": d_l.strftime('%d/%m/%Y'), "Líder": l_l, "Nome": l_l, "Tipo": "Liderança", "Célula": 1 if lpce else 0, "Culto": 1 if lpcu else 0})
-        
         for n, t in st.session_state.membros_cadastrados.get(l_l, {}).items():
             c_n, c_ce, c_cu = st.columns([2, 1, 1])
             c_n.markdown(f"{n} <br><small>({t})</small>", unsafe_allow_html=True)
             pce = c_ce.checkbox(" ", key=f"c_{n}")
             pcu = c_cu.checkbox(" ", key=f"u_{n}")
             novos.append({"Data": d_l.strftime('%d/%m/%Y'), "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if pce else 0, "Culto": 1 if pcu else 0})
-        
         st.divider()
         col_v1, col_v2 = st.columns(2)
         vce = col_v1.number_input("🏠 Vis. Célula", 0)
         vcu = col_v2.number_input("⛪ Vis. Culto", 0)
-        
         if st.button("💾 SALVAR LANÇAMENTO", use_container_width=True, type="primary"):
             dt_ref = d_l.strftime('%d/%m/%Y')
             dfp = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_ref)&(st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
@@ -199,7 +197,7 @@ with tab_lanc:
                 time.sleep(1)
                 st.cache_data.clear(); st.rerun()
 
-# --- ABA GESTÃO (NÃO MEXER) ---
+# --- ABA GESTÃO ---
 with tab_gestao:
     def sync_membros():
         lista = []
@@ -259,7 +257,7 @@ with tab_gestao:
             if c_b2.button("❌", key=f"x_{nome}"):
                 del st.session_state.membros_cadastrados[cel_edit][nome]; sync_membros(); st.rerun()
 
-# --- ABA RELATÓRIO OB (NÃO MEXER) ---
+# --- ABA RELATÓRIO OB ---
 with tab_ob:
     st.header("📋 Relatório OB")
     m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1, key="ob_m_final")
