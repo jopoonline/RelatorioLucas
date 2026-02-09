@@ -121,15 +121,13 @@ with tab_dash:
                     total = sum([1 for l in lids_f for n, t in st.session_state.membros_cadastrados.get(l, {}).items() if t == "Membro"]) + len(lids_f)
                     f_val = int(df_sem[df_sem['Tipo'].isin(['Membro', 'Liderança'])][modo].sum())
                 elif tipo == "Visitante":
-                    total = 0 # Visitantes não têm teto fixo
+                    total = 0
                     f_val = int(df_v_sem['Vis_Celula' if modo == 'Célula' else 'Vis_Culto'].sum())
                 else: # FA
                     total = sum([1 for l in lids_f for n, t in st.session_state.membros_cadastrados.get(l, {}).items() if t == tipo])
                     f_val = int(df_sem[df_sem['Tipo'] == tipo][modo].sum())
-                
                 return f"{f_val}/{total}" if total > 0 else f"{f_val}"
 
-            # Organização dos 6 Cards conforme solicitado
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.markdown(f'<div class="metric-box"><span class="metric-value">{get_count_int("Membro", "Célula")}</span>Membro Cél.</div>', unsafe_allow_html=True)
             c2.markdown(f'<div class="metric-box"><span class="metric-value">{get_count_int("FA", "Célula")}</span>FA Cél.</div>', unsafe_allow_html=True)
@@ -138,10 +136,8 @@ with tab_dash:
             c5.markdown(f'<div class="metric-box"><span class="metric-value">{get_count_int("FA", "Culto")}</span>FA Culto</div>', unsafe_allow_html=True)
             c6.markdown(f'<div class="metric-box"><span class="metric-value">{get_count_int("Visitante", "Culto")}</span>Vis. Culto</div>', unsafe_allow_html=True)
 
-            # --- ALERTAS ---
             st.write("### 🚨 Monitoramento Crítico")
             col_a1, col_a2 = st.columns(2)
-            
             with col_a1:
                 st.write("**Ausências (2 semanas seguidas)**")
                 for lider in lids_f:
@@ -150,7 +146,6 @@ with tab_dash:
                         u = df_h[df_h['Nome'] == m].head(2)
                         if len(u) == 2 and u['Célula'].sum() == 0:
                             st.markdown(f'<div class="alert-danger">⚠️ {m} ({lider}): Faltou 2x na Célula</div>', unsafe_allow_html=True)
-
             with col_a2:
                 st.write("**Células sem Visitantes (2 semanas seguidas)**")
                 for lider in lids_f:
@@ -158,15 +153,21 @@ with tab_dash:
                     if len(df_hv) == 2 and df_hv['Vis_Celula'].sum() == 0:
                         st.markdown(f'<div class="alert-warning">🚩 Célula {lider}: 2 semanas sem visitantes</div>', unsafe_allow_html=True)
 
-            # --- GRÁFICOS ---
             st.write("### 📈 Evolução")
             col_g1, col_g2 = st.columns(2)
-            df_graf_p = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
-            fig1 = px.line(df_graf_p, x='Data', y='Célula', title="Frequência Total Célula", markers=True)
+            
+            # Gráfico Célula
+            df_graf_p_cel = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
+            df_graf_v_cel = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
+            df_merge_cel = pd.merge(df_graf_p_cel, df_graf_v_cel, on='Data', how='outer').fillna(0).sort_values('Data')
+            fig1 = px.line(df_merge_cel, x='Data', y=['Célula', 'Vis_Celula'], title="Frequência: Célula", markers=True, color_discrete_sequence=['#38BDF8', '#94A3B8'])
             col_g1.plotly_chart(fig1, use_container_width=True)
             
-            df_graf_cul = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Culto'].sum().reset_index()
-            fig2 = px.bar(df_graf_cul, x='Data', y='Culto', title="Frequência Total Culto", color_discrete_sequence=['#0284C7'])
+            # Gráfico Culto (Agora igual ao de Célula)
+            df_graf_p_cul = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Culto'].sum().reset_index()
+            df_graf_v_cul = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
+            df_merge_cul = pd.merge(df_graf_p_cul, df_graf_v_cul, on='Data', how='outer').fillna(0).sort_values('Data')
+            fig2 = px.line(df_merge_cul, x='Data', y=['Culto', 'Vis_Culto'], title="Frequência: Culto", markers=True, color_discrete_sequence=['#0284C7', '#64748B'])
             col_g2.plotly_chart(fig2, use_container_width=True)
 
 # --- TAB LANÇAR (Mantida) ---
@@ -179,14 +180,12 @@ with tab_lanc:
         datas_sab = [date(2026, MESES_MAP[m_l], d) for d in range(1, 32) if (date(2026, MESES_MAP[m_l], 1) + timedelta(days=d-1)).month == MESES_MAP[m_l] and (date(2026, MESES_MAP[m_l], 1) + timedelta(days=d-1)).weekday() == 5]
         d_l = cl2.selectbox("Data", datas_sab, format_func=lambda x: x.strftime('%d/%m'), key="l_d")
         l_l = cl3.selectbox("Sua Célula", sorted(st.session_state.membros_cadastrados.keys()), key="l_l")
-        
         novos = []
         st.markdown(f"**Líder: {l_l}**")
         c_ln, c_le, c_lu = st.columns([2,1,1])
         l_pres_e = c_le.checkbox("Célula", key=f"le_{l_l}", value=True)
         l_pres_u = c_lu.checkbox("Culto", key=f"lu_{l_l}", value=True)
         novos.append({"Data": pd.to_datetime(d_l), "Líder": l_l, "Nome": l_l, "Tipo": "Liderança", "Célula": 1 if l_pres_e else 0, "Culto": 1 if l_pres_u else 0})
-        
         mem = st.session_state.membros_cadastrados.get(l_l, {})
         for n, t in mem.items():
             cn, ce, cu = st.columns([2,1,1])
@@ -194,10 +193,8 @@ with tab_lanc:
             p_e = ce.checkbox("Célula", key=f"e_{n}_{d_l}")
             p_u = cu.checkbox("Culto", key=f"u_{n}_{d_l}")
             novos.append({"Data": pd.to_datetime(d_l), "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if p_e else 0, "Culto": 1 if p_u else 0})
-        
         v_cel_in = st.number_input("Visitantes Célula", 0, key="v_cel")
         v_cul_in = st.number_input("Visitantes Culto", 0, key="v_cul")
-            
         if st.button("💾 SALVAR", use_container_width=True, type="primary"):
             dt_l = pd.to_datetime(d_l)
             df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_l) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
