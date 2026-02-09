@@ -55,11 +55,12 @@ st.markdown("""
 <style>
     .stApp { background-color: #0F172A; color: #F8FAFC; }
     .main-title { background: linear-gradient(90deg, #60A5FA 0%, #1D4ED8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; font-size: 24px; text-align: center; margin-bottom: 5px;}
-    .metric-box { background: #1E293B; padding: 12px; border-radius: 10px; border-left: 4px solid #3B82F6; text-align: center; margin-bottom: 15px; }
-    .metric-label { font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: bold; }
-    .metric-value { font-size: 28px; font-weight: 900; color: #3B82F6; margin:0; }
-    .section-header { font-size: 14px; font-weight: bold; color: #60A5FA; margin: 10px 0; border-bottom: 1px solid #334155; padding-bottom: 3px; }
-    .alert-danger { background: #450a0a; padding: 10px; border-radius: 5px; border-left: 5px solid #ef4444; margin-bottom: 8px; font-size: 13px; color: #fecaca; }
+    .metric-box { background: #1E293B; padding: 10px; border-radius: 10px; border-left: 4px solid #3B82F6; text-align: center; margin-bottom: 10px; }
+    .metric-label { font-size: 10px; color: #94A3B8; text-transform: uppercase; font-weight: bold; margin-bottom: 2px;}
+    .metric-value { font-size: 22px; font-weight: 900; color: #3B82F6; margin:0; }
+    .section-header { font-size: 14px; font-weight: bold; color: #60A5FA; margin: 15px 0 5px 0; border-bottom: 1px solid #334155; padding-bottom: 3px; }
+    .alert-danger { background: #450a0a; padding: 8px; border-radius: 5px; border-left: 5px solid #ef4444; margin-bottom: 5px; font-size: 12px; color: #fecaca; }
+    .alert-info { background: #1e3a8a; padding: 8px; border-radius: 5px; border-left: 5px solid #3b82f6; margin-bottom: 5px; font-size: 12px; color: #dbeafe; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -76,7 +77,6 @@ with tab_dash:
         st.info("💡 Sem dados.")
     else:
         lids_f = st.multiselect("Filtrar Células:", sorted(st.session_state.membros_cadastrados.keys()), default=list(st.session_state.membros_cadastrados.keys()))
-        
         c_mes, c_sem = st.columns(2)
         mes_sel = c_mes.selectbox("Mês:", MESES_NOMES, index=datetime.now().month - 1)
         
@@ -85,65 +85,84 @@ with tab_dash:
             datas_sabs = sorted(df_mes_f['Data'].unique(), reverse=True)
             sem_sel = c_sem.selectbox("Semana:", datas_sabs, format_func=lambda x: x.strftime('%d/%m'))
             
-            # Dados da Semana
-            total_cel_sem = int(df_mes_f[(df_mes_f['Data'] == sem_sel) & (df_mes_f['Líder'].isin(lids_f))]['Célula'].sum() + 
-                                st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == sem_sel) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]['Vis_Celula'].sum())
-            total_cul_sem = int(df_mes_f[(df_mes_f['Data'] == sem_sel) & (df_mes_f['Líder'].isin(lids_f))]['Culto'].sum() + 
-                                st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == sem_sel) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]['Vis_Culto'].sum())
+            # Dados Filtrados da Semana
+            df_s = df_mes_f[(df_mes_f['Data'] == sem_sel) & (df_mes_f['Líder'].isin(lids_f))]
+            df_vs = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == sem_sel) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
 
             # --- 1. DASH CÉLULA ---
-            st.markdown('<p class="section-header">🏠 CÉLULA (Membros + Vis)</p>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-box"><p class="metric-label">Total na Semana {sem_sel.strftime("%d/%m")}</p><p class="metric-value">{total_cel_sem}</p></div>', unsafe_allow_html=True)
+            st.markdown('<p class="section-header">🏠 CÉLULA: DETALHAMENTO</p>', unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
+            # Cálculos de Membros e FA (Célula)
+            m_cel = f"{df_s[df_s['Tipo']=='Membro']['Célula'].sum()}/{sum(1 for l in lids_f for n,t in st.session_state.membros_cadastrados[l].items() if t=='Membro')}"
+            fa_cel = f"{df_s[df_s['Tipo']=='FA']['Célula'].sum()}/{sum(1 for l in lids_f for n,t in st.session_state.membros_cadastrados[l].items() if t=='FA')}"
+            vis_cel = int(df_vs['Vis_Celula'].sum())
             
+            c1.markdown(f'<div class="metric-box"><p class="metric-label">Membros</p><p class="metric-value">{m_cel}</p></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="metric-box"><p class="metric-label">FA</p><p class="metric-value">{fa_cel}</p></div>', unsafe_allow_html=True)
+            c3.markdown(f'<div class="metric-box"><p class="metric-label">Visitantes</p><p class="metric-value">{vis_cel}</p></div>', unsafe_allow_html=True)
+
+            # Gráfico de Linha Célula
             df_tend_p = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Célula'].sum().reset_index()
             df_tend_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
             df_tend_c = pd.merge(df_tend_p, df_tend_v, on='Data', how='outer').fillna(0).sort_values('Data')
-
             fig1 = go.Figure()
-            fig1.add_trace(go.Scatter(x=df_tend_c['Data'], y=df_tend_c['Célula'], name="Membros", mode='lines+markers+text', text=df_tend_c['Célula'], textposition="top center", line=dict(color='#2563EB', width=4)))
-            fig1.add_trace(go.Scatter(x=df_tend_c['Data'], y=df_tend_c['Vis_Celula'], name="Vis", mode='lines+markers+text', text=df_tend_c['Vis_Celula'], textposition="top center", line=dict(color='#60A5FA', width=2, dash='dot')))
-            fig1.update_layout(template="plotly_dark", height=250, margin=dict(l=0,r=0,b=0,t=20), xaxis=dict(tickformat="%d/%m", nticks=5), legend=dict(orientation="h", y=-0.2))
+            fig1.add_trace(go.Scatter(x=df_tend_c['Data'], y=df_tend_c['Célula'], name="Interno", mode='lines+markers', line=dict(color='#2563EB', width=4)))
+            fig1.add_trace(go.Scatter(x=df_tend_c['Data'], y=df_tend_c['Vis_Celula'], name="Vis", mode='lines+markers', line=dict(color='#60A5FA', width=2, dash='dot')))
+            fig1.update_layout(template="plotly_dark", height=200, margin=dict(l=0,r=0,b=0,t=10), xaxis=dict(tickformat="%d/%m"), showlegend=False)
             st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
 
             # --- 2. DASH CULTO ---
-            st.markdown('<p class="section-header">⛪ CULTO (Membros + Vis)</p>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-box"><p class="metric-label">Total na Semana {sem_sel.strftime("%d/%m")}</p><p class="metric-value" style="color:#60A5FA;">{total_cul_sem}</p></div>', unsafe_allow_html=True)
+            st.markdown('<p class="section-header">⛪ CULTO: DETALHAMENTO</p>', unsafe_allow_html=True)
+            d1, d2, d3 = st.columns(3)
+            # Cálculos de Membros e FA (Culto)
+            m_cul = f"{df_s[df_s['Tipo']=='Membro']['Culto'].sum()}/{sum(1 for l in lids_f for n,t in st.session_state.membros_cadastrados[l].items() if t=='Membro')}"
+            fa_cul = f"{df_s[df_s['Tipo']=='FA']['Culto'].sum()}/{sum(1 for l in lids_f for n,t in st.session_state.membros_cadastrados[l].items() if t=='FA')}"
+            vis_cul = int(df_vs['Vis_Culto'].sum())
             
+            d1.markdown(f'<div class="metric-box"><p class="metric-label">Membros</p><p class="metric-value">{m_cul}</p></div>', unsafe_allow_html=True)
+            d2.markdown(f'<div class="metric-box"><p class="metric-label">FA</p><p class="metric-value">{fa_cul}</p></div>', unsafe_allow_html=True)
+            d3.markdown(f'<div class="metric-box"><p class="metric-label">Visitantes</p><p class="metric-value">{vis_cul}</p></div>', unsafe_allow_html=True)
+
+            # Gráfico de Linha Culto
             df_tend_up = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Culto'].sum().reset_index()
             df_tend_uv = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
             df_tend_u = pd.merge(df_tend_up, df_tend_uv, on='Data', how='outer').fillna(0).sort_values('Data')
-
             fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(x=df_tend_u['Data'], y=df_tend_u['Culto'], name="Membros", mode='lines+markers+text', text=df_tend_u['Culto'], textposition="top center", line=dict(color='#1D4ED8', width=4)))
-            fig2.add_trace(go.Scatter(x=df_tend_u['Data'], y=df_tend_u['Vis_Culto'], name="Vis", mode='lines+markers+text', text=df_tend_u['Vis_Culto'], textposition="top center", line=dict(color='#93C5FD', width=2, dash='dot')))
-            fig2.update_layout(template="plotly_dark", height=250, margin=dict(l=0,r=0,b=0,t=20), xaxis=dict(tickformat="%d/%m", nticks=5), legend=dict(orientation="h", y=-0.2))
+            fig2.add_trace(go.Scatter(x=df_tend_u['Data'], y=df_tend_u['Culto'], name="Interno", mode='lines+markers', line=dict(color='#1D4ED8', width=4)))
+            fig2.add_trace(go.Scatter(x=df_tend_u['Data'], y=df_tend_u['Vis_Culto'], name="Vis", mode='lines+markers', line=dict(color='#93C5FD', width=2, dash='dot')))
+            fig2.update_layout(template="plotly_dark", height=200, margin=dict(l=0,r=0,b=0,t=10), xaxis=dict(tickformat="%d/%m"), showlegend=False)
             st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
 
             # --- 3. EVOLUÇÃO TRIMESTRAL ---
-            st.markdown('<p class="section-header">📅 EVOLUÇÃO TRIMESTRAL (MENSAL)</p>', unsafe_allow_html=True)
+            st.markdown('<p class="section-header">📅 EVOLUÇÃO TRIMESTRAL (SOMA CÉLULA)</p>', unsafe_allow_html=True)
             mes_n = MESES_MAP[mes_sel]
             meses_tri = [(mes_n - i) for i in range(3)]
             meses_tri = [m if m > 0 else m + 12 for m in meses_tri]
-            
             df_tri = st.session_state.db[(st.session_state.db['Data'].dt.month.isin(meses_tri)) & (st.session_state.db['Líder'].isin(lids_f))].copy()
             df_tri['Mes_Nome'] = df_tri['Data'].dt.month.map({v: k for k, v in MESES_MAP.items()})
             resumo_tri = df_tri.groupby('Mes_Nome', sort=False)['Célula'].sum().reset_index()
             resumo_tri['Idx'] = resumo_tri['Mes_Nome'].map(MESES_MAP)
             resumo_tri = resumo_tri.sort_values('Idx')
-
             fig3 = go.Figure()
             fig3.add_trace(go.Scatter(x=resumo_tri['Mes_Nome'], y=resumo_tri['Célula'], mode='lines+markers+text', text=resumo_tri['Célula'], textposition="top center", line=dict(color='#3B82F6', width=5), fill='tozeroy'))
-            fig3.update_layout(template="plotly_dark", height=250, margin=dict(l=0,r=0,b=0,t=20), yaxis=dict(showgrid=False))
+            fig3.update_layout(template="plotly_dark", height=200, margin=dict(l=0,r=0,b=0,t=20), yaxis=dict(showgrid=False))
             st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
 
-            # --- 4. ALERTAS DE AUSÊNCIA ---
-            with st.expander("🚨 ALERTAS DE ATENÇÃO (Faltou 2x)"):
+            # --- 4. ALERTAS ---
+            with st.expander("🚨 ALERTAS DO DISTRITO"):
+                st.write("**Faltas Consecutivas (2x):**")
                 for lider in lids_f:
                     df_h = st.session_state.db[st.session_state.db['Líder'] == lider].sort_values('Data', ascending=False)
                     for m in df_h['Nome'].unique():
                         u = df_h[df_h['Nome'] == m].head(2)
                         if len(u) == 2 and u['Célula'].sum() == 0:
-                            st.markdown(f'<div class="alert-danger">⚠️ {m} ({lider}): Faltou 2x seguidas</div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="alert-danger">⚠️ {m} ({lider})</div>', unsafe_allow_html=True)
+                
+                st.write("**Zero Visitantes na Semana:**")
+                for lider in lids_f:
+                    v_lid = df_vs[df_vs['Líder'] == lider]['Vis_Celula'].sum()
+                    if v_lid == 0:
+                        st.markdown(f'<div class="alert-info">ℹ️ {lider}: Sem visitantes esta semana</div>', unsafe_allow_html=True)
 
 # --- TABELAS RESTANTES (LANÇAR, GESTÃO, RELATÓRIO) ---
 with tab_lanc:
