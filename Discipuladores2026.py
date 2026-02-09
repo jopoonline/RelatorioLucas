@@ -73,8 +73,8 @@ st.markdown("""<style>
 MESES_NOMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 
-st.title("🛡️ DISTRITO PRO 2026")
-tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇAR", "⚙️ GESTÃO", "📋 RELATÓRIO OB"])
+st.title("Lucas e Rosana")
+tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 Dados Célula e Culto", "📝 Preencher Relatorio Lider", "⚙️ GESTÃO Células", "📋 RELATÓRIO OB e Chamada"])
 
 # --- ABA DASHBOARD ---
 with tab_dash:
@@ -290,3 +290,4 @@ with tab_ob:
                 else: ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = "❌ | ❌"
             cham_d.append(ln)
         st.dataframe(pd.DataFrame(cham_d), use_container_width=True, hide_index=True)
+
