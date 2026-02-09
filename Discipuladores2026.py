@@ -86,12 +86,12 @@ with tab_dash:
         lids_f = st.multiselect("Filtrar Células:", lids_atuais, default=lids_atuais)
         datas_u = sorted(st.session_state.db['Data_Ref'].unique(), reverse=True)
         if len(datas_u) >= 2:
-            st.subheader("⚠️ Alertas para Lider ⚠️")
+            st.subheader("🚨 Alertas para o Lider 🚨")
             d1, d2 = datas_u[0], datas_u[1]
             for lid in lids_f:
                 v1 = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==d1)&(st.session_state.db_visitantes['Líder']==lid)]['Vis_Celula'].sum()
                 v2 = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==d2)&(st.session_state.db_visitantes['Líder']==lid)]['Vis_Celula'].sum()
-                if v1 == 0 and v2 == 0: st.error(f"🚩 **{lid}**: Sem visitantes nas últimas 2 semanas.")
+                if v1 == 0 and v2 == 0: st.error(f"🚨 **{lid}**: Sem visitantes nas últimas 2 semanas.")
                 for n, t in st.session_state.membros_cadastrados.get(lid, {}).items():
                     p1 = st.session_state.db[(st.session_state.db['Data_Ref']==d1)&(st.session_state.db['Líder']==lid)&(st.session_state.db['Nome']==n)]['Célula'].sum()
                     p2 = st.session_state.db[(st.session_state.db['Data_Ref']==d2)&(st.session_state.db['Líder']==lid)&(st.session_state.db['Nome']==n)]['Célula'].sum()
@@ -301,4 +301,5 @@ with tab_ob:
                 else: ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = "❌ | ❌"
             cham_d.append(ln)
         st.dataframe(pd.DataFrame(cham_d), use_container_width=True, hide_index=True)
+
 
