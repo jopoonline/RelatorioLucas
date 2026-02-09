@@ -20,13 +20,13 @@ def carregar_dados():
         df_v = conn.read(spreadsheet=URL_PLANILHA, worksheet="Visitantes")
         df_m = conn.read(spreadsheet=URL_PLANILHA, worksheet="Membros")
         
-        # Garantia de colunas para evitar KeyError: 'Data'
+        # Garantia de colunas para evitar KeyError
         if df_p is None or df_p.empty:
             df_p = pd.DataFrame(columns=['Data', 'Líder', 'Nome', 'Tipo', 'Célula', 'Culto'])
         if df_v is None or df_v.empty:
             df_v = pd.DataFrame(columns=['Data', 'Líder', 'Vis_Celula', 'Vis_Culto'])
             
-        # Conversão de tipos
+        # Conversão de tipos para garantir que o app funcione
         df_p['Data'] = pd.to_datetime(df_p['Data'], errors='coerce')
         df_v['Data'] = pd.to_datetime(df_v['Data'], errors='coerce')
         
@@ -48,16 +48,20 @@ def carregar_dados():
         return pd.DataFrame(columns=['Data', 'Líder']), pd.DataFrame(columns=['Data', 'Líder']), {}
 
 def salvar_seguro(worksheet, df):
-    """Evita o erro de API convertendo datas para string antes de enviar"""
+    """Resolve o erro '.dt accessor' forçando a conversão antes de formatar"""
     try:
         df_save = df.copy()
         if 'Data' in df_save.columns:
+            # Força reconhecimento como data para evitar erro de 'datetimelike values'
+            df_save['Data'] = pd.to_datetime(df_save['Data'], errors='coerce')
+            # Remove nulos e converte para string (formato que o Google Sheets aceita sem erro)
+            df_save = df_save.dropna(subset=['Data'])
             df_save['Data'] = df_save['Data'].dt.strftime('%Y-%m-%d')
+        
         conn.update(spreadsheet=URL_PLANILHA, worksheet=worksheet, data=df_save)
         return True
     except Exception as e:
         st.error(f"Erro ao salvar na aba {worksheet}: {e}")
-        st.info("Verifique se a planilha está compartilhada como EDITOR.")
         return False
 
 def sincronizar_membros():
@@ -148,14 +152,14 @@ with tab_lanc:
         st.warning("Cadastre líderes em GESTÃO.")
     else:
         ca, cb, cc = st.columns(3)
-        m_l = ca.selectbox("Mês Lançamento", MESES_NOMES, index=datetime.now().month-1, key="sel_mes_lanc")
+        m_l = ca.selectbox("Mês Lançamento", MESES_NOMES, index=datetime.now().month-1, key="l_mes")
         datas_sab = [date(2026, MESES_MAP[m_l], d) for d in range(1, 32) if (date(2026, MESES_MAP[m_l], 1) + timedelta(days=d-1)).month == MESES_MAP[m_l] and (date(2026, MESES_MAP[m_l], 1) + timedelta(days=d-1)).weekday() == 5]
-        d_l = cb.selectbox("Data (Sábado)", datas_sab, format_func=lambda x: x.strftime('%d/%m'), key="sel_data_lanc")
-        l_l = cc.selectbox("Líder", sorted(st.session_state.membros_cadastrados.keys()), key="sel_lider_lanc")
+        d_l = cb.selectbox("Data (Sábado)", datas_sab, format_func=lambda x: x.strftime('%d/%m'), key="l_data")
+        l_l = cc.selectbox("Líder", sorted(st.session_state.membros_cadastrados.keys()), key="l_lider")
         
         col_v1, col_v2 = st.columns(2)
-        v_cel_in = col_v1.number_input("Visitantes Célula", min_value=0, step=1, key="in_v_cel")
-        v_cul_in = col_v2.number_input("Visitantes Culto", min_value=0, step=1, key="in_v_cul")
+        v_cel_in = col_v1.number_input("Visitantes Célula", min_value=0, step=1, key="l_v_cel")
+        v_cul_in = col_v2.number_input("Visitantes Culto", min_value=0, step=1, key="l_v_cul")
         
         mem = st.session_state.membros_cadastrados.get(l_l, {})
         novos = []
@@ -165,14 +169,14 @@ with tab_lanc:
             c_n.write(f"**{n}** ({t})")
             p_e = c_e.checkbox("Célula", key=f"e_{n}_{d_l}")
             p_u = c_u.checkbox("Culto", key=f"u_{n}_{d_l}")
-            novos.append({"Data": d_l, "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if p_e else 0, "Culto": 1 if p_u else 0})
+            novos.append({"Data": pd.to_datetime(d_l), "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if p_e else 0, "Culto": 1 if p_u else 0})
             
         if st.button("💾 SALVAR DADOS", use_container_width=True, type="primary"):
             dt_l = pd.to_datetime(d_l)
             # Presenças
             df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_l) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
             # Visitantes
-            df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_l) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
+            df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_l) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": pd.to_datetime(d_l), "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
             
             if salvar_seguro("Presencas", df_p_new) and salvar_seguro("Visitantes", df_v_new):
                 st.success("Relatório salvo com sucesso!")
@@ -182,11 +186,11 @@ with tab_lanc:
 
 # --- TAB GESTÃO ---
 with tab_gestao:
-    st.subheader("⚙️ Configuração de Células e Membros")
+    st.subheader("⚙️ Configuração")
     col1, col2 = st.columns(2)
     with col1:
         st.write("### ➕ Nova Célula")
-        n_l = st.text_input("Nome do Novo Líder", key="new_lider_name")
+        n_l = st.text_input("Nome do Novo Líder")
         if st.button("Criar Célula", use_container_width=True):
             if n_l: 
                 st.session_state.membros_cadastrados[n_l] = {}
@@ -195,9 +199,9 @@ with tab_gestao:
     with col2:
         if st.session_state.membros_cadastrados:
             st.write("### 👥 Adicionar Pessoa")
-            l_sel = st.selectbox("Na Célula de:", sorted(st.session_state.membros_cadastrados.keys()), key="sel_lider_gestao")
-            n_m = st.text_input("Nome da Pessoa", key="new_membro_name")
-            t_m = st.radio("Tipo", ["Membro", "FA"], horizontal=True, key="new_membro_tipo")
+            l_sel = st.selectbox("Na Célula de:", sorted(st.session_state.membros_cadastrados.keys()))
+            n_m = st.text_input("Nome da Pessoa")
+            t_m = st.radio("Tipo", ["Membro", "FA"], horizontal=True)
             if st.button("Salvar Membro", use_container_width=True):
                 if n_m:
                     st.session_state.membros_cadastrados[l_sel][n_m] = t_m
@@ -206,8 +210,8 @@ with tab_gestao:
 
 # --- TAB RELATÓRIO OB ---
 with tab_ob:
-    st.subheader("📋 Relatório Executivo OB")
-    mes_ob = st.selectbox("Visualizar Mês:", MESES_NOMES, index=datetime.now().month-1, key="sel_mes_ob")
+    st.subheader("📋 Relatório Semanal OB")
+    mes_ob = st.selectbox("Visualizar Mês:", MESES_NOMES, index=datetime.now().month-1, key="ob_mes")
     if not st.session_state.db.empty and 'Data' in st.session_state.db.columns:
         df_p_ob = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_ob]]
         if not df_p_ob.empty:
@@ -222,8 +226,8 @@ with tab_ob:
                     
                     dados_ob.append({
                         "Líder": lid,
-                        "Membros (Cél)": f"{int(f_p[f_p['Tipo']=='Membro']['Célula'].sum())}/{m_t}",
-                        "FA (Cél)": f"{int(f_p[f_p['Tipo']=='FA']['Célula'].sum())}/{fa_t}",
+                        "Membros": f"{int(f_p[f_p['Tipo']=='Membro']['Célula'].sum())}/{m_t}",
+                        "FA": f"{int(f_p[f_p['Tipo']=='FA']['Célula'].sum())}/{fa_t}",
                         "Visitantes": int(f_v['Vis_Celula'].sum())
                     })
                 st.table(pd.DataFrame(dados_ob))
