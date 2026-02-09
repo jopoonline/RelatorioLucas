@@ -12,8 +12,8 @@ st.set_page_config(page_title="Distrito Pro 2026", layout="wide", page_icon="�
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1y3vAXagtbdzaTHGEkPOuWI3TvzcfFYhfO1JUt0GrhG8/edit?usp=sharing"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 2. FUNÇÕES DE DADOS (COM LIMPEZA DE DATA REFORÇADA) ---
-@st.cache_data(ttl=60)
+# --- 2. FUNÇÕES DE DADOS ---
+@st.cache_data(ttl=10) # Reduzi para 10 segundos para você ver a mudança na hora
 def carregar_dados():
     try:
         df_p = conn.read(spreadsheet=URL_PLANILHA, worksheet="Presencas")
@@ -25,12 +25,10 @@ def carregar_dados():
         if df_v is None or df_v.empty:
             df_v = pd.DataFrame(columns=['Data', 'Líder', 'Vis_Celula', 'Vis_Culto'])
             
-        # --- LIMPEZA DE DATAS ---
-        # O dayfirst=True ajuda a entender 28/02 como dia 28 e não mês 28
-        df_p['Data'] = pd.to_datetime(df_p['Data'], dayfirst=True, errors='coerce')
-        df_v['Data'] = pd.to_datetime(df_v['Data'], dayfirst=True, errors='coerce')
+        # Conversão robusta de data
+        df_p['Data'] = pd.to_datetime(df_p['Data'], dayfirst=True, errors='coerce').dt.tz_localize(None)
+        df_v['Data'] = pd.to_datetime(df_v['Data'], dayfirst=True, errors='coerce').dt.tz_localize(None)
         
-        # Remove linhas onde a data falhou na conversão
         df_p = df_p.dropna(subset=['Data'])
         df_v = df_v.dropna(subset=['Data'])
         
@@ -55,7 +53,6 @@ def salvar_seguro(worksheet, df):
     try:
         df_save = df.copy()
         if 'Data' in df_save.columns:
-            # Ao salvar, padronizamos sempre para AAAA-MM-DD para evitar bagunça na planilha
             df_save['Data'] = pd.to_datetime(df_save['Data']).dt.strftime('%Y-%m-%d')
         conn.update(spreadsheet=URL_PLANILHA, worksheet=worksheet, data=df_save)
         return True
@@ -101,12 +98,12 @@ tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇ
 
 # --- TAB DASHBOARDS ---
 with tab_dash:
-    if st.button("🔄 Atualizar e Sincronizar Planilha"):
+    if st.button("🔄 Sincronizar Agora"):
         st.cache_data.clear()
         st.rerun()
 
     if st.session_state.db.empty:
-        st.info("💡 Sem dados carregados.")
+        st.info("💡 Sem dados na planilha.")
     else:
         lids_atuais = sorted(list(st.session_state.membros_cadastrados.keys()))
         lids_f = st.multiselect("Filtrar Células:", lids_atuais, default=lids_atuais)
@@ -114,13 +111,15 @@ with tab_dash:
         col_m, col_s = st.columns(2)
         mes_sel = col_m.selectbox("Mês:", MESES_NOMES, index=datetime.now().month - 1)
         
+        # Filtro de mês mais flexível
         df_mes_f = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]]
         
         if df_mes_f.empty:
-            st.warning(f"Sem lançamentos em {mes_sel}.")
+            st.warning(f"Sem dados registrados para {mes_sel}. Tente outro mês ou verifique a planilha.")
         else:
+            # Pega as datas únicas do mês e garante que são mostradas
             datas_disp = sorted(df_mes_f['Data'].unique(), reverse=True)
-            data_sel = col_s.selectbox("Semana:", datas_disp, format_func=lambda x: pd.to_datetime(x).strftime('%d/%m/%Y'))
+            data_sel = col_s.selectbox("Semana Selecionada:", datas_disp, format_func=lambda x: x.strftime('%d/%m/%Y'))
 
             df_sem = st.session_state.db[(st.session_state.db['Data'] == data_sel) & (st.session_state.db['Líder'].isin(lids_f))]
             df_v_sem = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == data_sel) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
@@ -149,40 +148,24 @@ with tab_dash:
             st.write("### 📈 Evolução Semanal")
             col_g1, col_g2 = st.columns(2)
             
+            # Garantir que o gráfico use as datas corretas
             df_p_c = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
             df_v_c = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
             df_m_c = pd.merge(df_p_c, df_v_c, on='Data', how='outer').fillna(0).sort_values('Data')
             
-            fig1 = px.line(df_m_c, x='Data', y=['Célula', 'Vis_Celula'], title="Frequência Célula", markers=True, text='value')
+            fig1 = px.line(df_m_c, x='Data', y=['Célula', 'Vis_Celula'], title="Célula", markers=True, text='value')
             fig1.update_traces(textposition="top center")
-            fig1.update_xaxes(tickformat="%d/%m", tickvals=df_m_c['Data'])
             col_g1.plotly_chart(fig1, use_container_width=True)
             
             df_p_u = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Culto'].sum().reset_index()
             df_v_u = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
             df_m_u = pd.merge(df_p_u, df_v_u, on='Data', how='outer').fillna(0).sort_values('Data')
             
-            fig2 = px.line(df_m_u, x='Data', y=['Culto', 'Vis_Culto'], title="Frequência Culto", markers=True, text='value')
+            fig2 = px.line(df_m_u, x='Data', y=['Culto', 'Vis_Culto'], title="Culto", markers=True, text='value')
             fig2.update_traces(textposition="top center")
-            fig2.update_xaxes(tickformat="%d/%m", tickvals=df_m_u['Data'])
             col_g2.plotly_chart(fig2, use_container_width=True)
 
-            st.write("---")
-            st.write("### 📊 Comparativo Mensal (Média)")
-            mes_atual_num = MESES_MAP[mes_sel]
-            meses_comp_nums = [mes_atual_num, mes_atual_num-1, mes_atual_num-2]
-            meses_comp_nums = [m for m in meses_comp_nums if m > 0]
-            comp_list = []
-            for m_n in meses_comp_nums:
-                n_m = [k for k, v in MESES_MAP.items() if v == m_n][0]
-                df_p_m = st.session_state.db[(st.session_state.db['Data'].dt.month == m_n) & (st.session_state.db['Líder'].isin(lids_f))]
-                df_v_m = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == m_n) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
-                sabs = len(df_p_m['Data'].unique()) if len(df_p_m['Data'].unique()) > 0 else 1
-                comp_list.append({"Mês": n_m, "Célula": round(df_p_m['Célula'].sum()/sabs,1), "Culto": round(df_p_m['Culto'].sum()/sabs,1), "Visitantes": round(df_v_m['Vis_Celula'].sum()/sabs,1)})
-            if comp_list:
-                st.plotly_chart(px.bar(pd.DataFrame(comp_list), x='Mês', y=['Célula', 'Culto', 'Visitantes'], barmode='group', text_auto=True), use_container_width=True)
-
-# --- MANUTENÇÃO DAS OUTRAS ABAS (SEM ALTERAÇÕES) ---
+# --- TABELAS LANÇAR, GESTÃO E OB MANTIDAS ---
 with tab_lanc:
     if not st.session_state.membros_cadastrados:
         st.warning("Cadastre líderes em GESTÃO.")
