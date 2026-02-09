@@ -68,13 +68,15 @@ st.markdown("""<style>
     .stApp { background-color: #0F172A; color: #F8FAFC; } 
     .metric-box { background: #1E293B; padding: 15px; border-radius: 10px; border-top: 4px solid #0284C7; text-align: center; margin-bottom: 10px; } 
     .metric-value { font-size: 24px; font-weight: 800; color: #38BDF8; display: block; }
+    /* Ajuste para forçar colunas lado a lado no mobile */
+    [data-testid="column"] { min-width: 0px !important; }
 </style>""", unsafe_allow_html=True)
 
 MESES_NOMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 
 st.title("Lucas e Rosana")
-tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 Dados Célula e Culto", "📝 Preencher Relatorio Lider", "⚙️ GESTÃO Células", "📋 RELATÓRIO OB e Chamada"])
+tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 Dados", "📝 Lançar", "⚙️ Gestão", "📋 Relatórios"])
 
 # --- ABA DASHBOARD ---
 with tab_dash:
@@ -89,11 +91,11 @@ with tab_dash:
             for lid in lids_f:
                 v1 = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==d1)&(st.session_state.db_visitantes['Líder']==lid)]['Vis_Celula'].sum()
                 v2 = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==d2)&(st.session_state.db_visitantes['Líder']==lid)]['Vis_Celula'].sum()
-                if v1 == 0 and v2 == 0: st.error(f"🚩 **{lid}**: Sem visitantes nas últimas 2 semanas.")
+                if v1 == 0 and v2 == 0: st.error(f"🚩 **{lid}**: Sem visitantes.")
                 for n, t in st.session_state.membros_cadastrados.get(lid, {}).items():
                     p1 = st.session_state.db[(st.session_state.db['Data_Ref']==d1)&(st.session_state.db['Líder']==lid)&(st.session_state.db['Nome']==n)]['Célula'].sum()
                     p2 = st.session_state.db[(st.session_state.db['Data_Ref']==d2)&(st.session_state.db['Líder']==lid)&(st.session_state.db['Nome']==n)]['Célula'].sum()
-                    if p1 == 0 and p2 == 0: st.error(f"👤 **{n}** ({lid}): Ausente nas últimas 2 reuniões.")
+                    if p1 == 0 and p2 == 0: st.error(f"👤 **{n}** ({lid}): Ausente.")
         st.divider()
         m_s = st.selectbox("Mês de Análise:", MESES_NOMES, index=datetime.now().month-1)
         df_m = st.session_state.db[st.session_state.db['MesNum']==MESES_MAP[m_s]]
@@ -156,7 +158,7 @@ with tab_dash:
                                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
                 st.plotly_chart(fig_bar, use_container_width=True)
 
-# --- ABA LANÇAR (MOBILE OPTIMIZED) ---
+# --- ABA LANÇAR (OTIMIZADA PARA MOBILE) ---
 with tab_lanc:
     if st.session_state.membros_cadastrados:
         l_m = st.selectbox("Mês Lançar", MESES_NOMES, index=datetime.now().month-1)
@@ -166,35 +168,45 @@ with tab_lanc:
         l_l = c_cl.selectbox("Sua Célula", sorted(st.session_state.membros_cadastrados.keys()))
         
         st.divider()
-        h1, h2, h3 = st.columns([2, 1, 1])
+        # Cabeçalho compacto com ícones
+        h1, h2, h3 = st.columns([3, 1, 1])
         h1.caption("👤 NOME")
         h2.caption("🏠 CEL")
         h3.caption("⛪ CUL")
 
         novos = []
-        def criar_linha(nome, tipo, chave):
-            col_n, col_ce, col_cu = st.columns([2, 1, 1])
-            col_n.markdown(f"**{nome}**")
-            p_ce = col_ce.checkbox(" ", key=f"ce_{chave}", value=(tipo == "Liderança"))
-            p_cu = col_cu.checkbox(" ", key=f"cu_{chave}", value=(tipo == "Liderança"))
+        def criar_linha_compacta(nome, tipo, chave):
+            # Colunas com proporção fixa para não quebrar no mobile
+            c_nome, c_cel, c_cul = st.columns([3, 1, 1])
+            
+            # Coluna 1: Nome
+            c_nome.markdown(f"**{nome}**")
+            
+            # Coluna 2: Célula (Checkbox invisível com ícone)
+            p_ce = c_cel.checkbox(" ", key=f"ce_{chave}", value=(tipo == "Liderança"), label_visibility="collapsed")
+            
+            # Coluna 3: Culto (Checkbox invisível com ícone)
+            p_cu = c_cul.checkbox(" ", key=f"cu_{chave}", value=(tipo == "Liderança"), label_visibility="collapsed")
+            
             return {"Data": d_l.strftime('%d/%m/%Y'), "Líder": l_l, "Nome": nome, "Tipo": tipo, "Célula": 1 if p_ce else 0, "Culto": 1 if p_cu else 0}
 
-        novos.append(criar_linha(l_l, "Liderança", "lider_row"))
+        # Listagem
+        novos.append(criar_linha_compacta(l_l, "Liderança", "lider_row"))
         for n, t in st.session_state.membros_cadastrados.get(l_l, {}).items():
-            novos.append(criar_linha(n, t, n))
+            novos.append(criar_linha_compacta(n, t, n))
         
         st.divider()
         st.write("✨ **Visitantes**")
         v_c1, v_c2 = st.columns(2)
-        vce = v_c1.number_input("🏠 Na Célula", 0)
-        vcu = v_c2.number_input("⛪ No Culto", 0)
+        vce = v_c1.number_input("🏠 Célula", 0)
+        vcu = v_c2.number_input("⛪ Culto", 0)
         
         if st.button("💾 SALVAR LANÇAMENTO", use_container_width=True, type="primary"):
             dt_ref = d_l.strftime('%d/%m/%Y')
             dfp = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_ref)&(st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
             dfv = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_ref)&(st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": dt_ref, "Líder": l_l, "Vis_Celula": vce, "Vis_Culto": vcu}])])
             if salvar_seguro("Presencas", dfp) and salvar_seguro("Visitantes", dfv): 
-                st.success("Salvo com sucesso!")
+                st.success("Salvo!")
                 time.sleep(1)
                 st.cache_data.clear(); st.rerun()
 
@@ -209,85 +221,46 @@ with tab_gestao:
     st.subheader("➕ Adicionar Novo")
     c_add1, c_add2 = st.columns(2)
     with c_add1:
-        nl = st.text_input("Novo Líder Externo")
+        nl = st.text_input("Novo Líder")
         if st.button("Criar Célula"):
             if nl and nl not in st.session_state.membros_cadastrados:
                 st.session_state.membros_cadastrados[nl] = {}; sync_membros(); st.rerun()
     with c_add2:
         if st.session_state.membros_cadastrados:
-            cs = st.selectbox("Célula para Membro:", sorted(st.session_state.membros_cadastrados.keys()))
-            nm = st.text_input("Nome da Pessoa")
-            tm = st.radio("Tipo Inicial", ["Membro", "FA"], horizontal=True)
-            if st.button("Adicionar Pessoa"):
+            cs = st.selectbox("Célula:", sorted(st.session_state.membros_cadastrados.keys()))
+            nm = st.text_input("Nome")
+            tm = st.radio("Tipo", ["Membro", "FA"], horizontal=True)
+            if st.button("Adicionar"):
                 if nm: st.session_state.membros_cadastrados[cs][nm]=tm; sync_membros(); st.rerun()
     st.divider()
-    st.subheader("🚀 Multiplicação e Transferência")
+    st.subheader("🗑️ Gerenciar")
     if st.session_state.membros_cadastrados:
-        cel_origem = st.selectbox("Célula de Origem:", sorted(st.session_state.membros_cadastrados.keys()), key="orig")
-        membros_orig = list(st.session_state.membros_cadastrados[cel_origem].keys())
-        if membros_orig:
-            membro_transf = st.selectbox("Selecionar Pessoa para Mover/Promover:", membros_orig)
-            tipo_membro = st.session_state.membros_cadastrados[cel_origem][membro_transf]
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
-                if st.button(f"🌟 Tornar Líder (Nova Célula: {membro_transf})"):
-                    del st.session_state.membros_cadastrados[cel_origem][membro_transf]
-                    st.session_state.membros_cadastrados[membro_transf] = {}
-                    sync_membros(); st.rerun()
-            with col_t2:
-                cel_dest = [c for c in st.session_state.membros_cadastrados.keys() if c != cel_origem]
-                if cel_dest:
-                    cel_destino = st.selectbox("Transferir para Célula Existente:", cel_dest)
-                    if st.button("Confirmar Transferência"):
-                        st.session_state.membros_cadastrados[cel_destino][membro_transf] = tipo_membro
-                        del st.session_state.membros_cadastrados[cel_origem][membro_transf]
-                        sync_membros(); st.rerun()
-    st.divider()
-    st.subheader("🗑️ Gerenciar e Excluir")
-    if st.session_state.membros_cadastrados:
-        cel_edit = st.selectbox("Selecione para Editar/Excluir:", sorted(st.session_state.membros_cadastrados.keys()))
-        if st.button(f"Excluir Célula de {cel_edit}"):
-            del st.session_state.membros_cadastrados[cel_edit]; sync_membros(); st.rerun()
+        cel_edit = st.selectbox("Editar Célula:", sorted(st.session_state.membros_cadastrados.keys()))
         membros_da_cel = st.session_state.membros_cadastrados.get(cel_edit, {})
         for nome, tipo in list(membros_da_cel.items()):
-            c_n, c_t, c_b1, c_b2 = st.columns([3, 2, 3, 2])
+            c_n, c_t, c_b1, c_b2 = st.columns([3, 2, 3, 1])
             c_n.write(nome); c_t.write(f"({tipo})")
             novo_t = "FA" if tipo == "Membro" else "Membro"
-            if c_b1.button(f"Mudar para {novo_t}", key=f"t_{nome}"):
+            if c_b1.button(f"Para {novo_t}", key=f"t_{nome}"):
                 st.session_state.membros_cadastrados[cel_edit][nome] = novo_t; sync_membros(); st.rerun()
             if c_b2.button("❌", key=f"x_{nome}"):
                 del st.session_state.membros_cadastrados[cel_edit][nome]; sync_membros(); st.rerun()
 
 # --- ABA RELATÓRIO OB ---
 with tab_ob:
-    st.header("📋 Relatório OB")
-    m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1, key="ob_m_final")
+    st.header("📋 Relatórios")
+    m_ob = st.selectbox("Mês:", MESES_NOMES, index=datetime.now().month-1, key="ob_m")
     df_ob = st.session_state.db[st.session_state.db['MesNum'] == MESES_MAP[m_ob]]
     df_v_ob = st.session_state.db_visitantes[st.session_state.db_visitantes['MesNum'] == MESES_MAP[m_ob]]
     if not df_ob.empty:
-        st.subheader("📊 Totais Semanais da Rede")
+        st.subheader("📊 Totais")
         res_sem = []
         for d_r in sorted(df_ob['Data_Ref'].unique()):
             d_f = datetime.strptime(d_r, '%Y-%m-%d').strftime('%d/%m')
             df_s = df_ob[df_ob['Data_Ref'] == d_r]
             m_ce = df_s[df_s['Tipo'].isin(['Membro','Liderança'])]['Célula'].sum()
             m_cu = df_s[df_s['Tipo'].isin(['Membro','Liderança'])]['Culto'].sum()
-            f_ce, f_cu = df_s[df_s['Tipo']=="FA"]['Célula'].sum(), df_s[df_s['Tipo']=="FA"]['Culto'].sum()
-            v_ce, v_cu = df_v_ob[df_v_ob['Data_Ref']==d_r]['Vis_Celula'].sum(), df_v_ob[df_v_ob['Data_Ref']==d_r]['Vis_Culto'].sum()
-            res_sem.append({"Data": d_f, "Membros": f"{m_ce}/{m_cu}", "FA": f"{f_ce}/{f_cu}", "Vis": f"{v_ce}/{v_cu}", "Total": f"{m_ce+f_ce+v_ce}/{m_cu+f_cu+v_cu}"})
+            f_ce = df_s[df_s['Tipo']=="FA"]['Célula'].sum()
+            v_ce = df_v_ob[df_v_ob['Data_Ref']==d_r]['Vis_Celula'].sum()
+            res_sem.append({"Data": d_f, "Membros": f"{m_ce}/{m_cu}", "FA": f"{f_ce}", "Vis": f"{v_ce}"})
         st.table(pd.DataFrame(res_sem))
-        st.divider(); st.subheader("🕵️ Chamada Detalhada (Célula | Culto)")
-        cel_sel_ob = st.selectbox("Selecionar Célula:", sorted(st.session_state.membros_cadastrados.keys()), key="ob_c_final")
-        m_cel = [{"Nome": cel_sel_ob, "Tipo": "Liderança"}] + [{"Nome": n, "Tipo": t} for n, t in st.session_state.membros_cadastrados.get(cel_sel_ob, {}).items()]
-        d_mes = sorted(df_ob['Data_Ref'].unique()); cham_d = []
-        for p in m_cel:
-            ln = {"Pessoa": f"{p['Nome']} ({p['Tipo']})"}
-            for d in d_mes:
-                df_c = df_ob[(df_ob['Data_Ref']==d)&(df_ob['Nome']==p['Nome'])&(df_ob['Líder']==cel_sel_ob)]
-                if not df_c.empty:
-                    p_ce = "✅" if df_c['Célula'].sum() > 0 else "❌"
-                    p_cu = "✅" if df_c['Culto'].sum() > 0 else "❌"
-                    ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = f"{p_ce} | {p_cu}"
-                else: ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = "❌ | ❌"
-            cham_d.append(ln)
-        st.dataframe(pd.DataFrame(cham_d), use_container_width=True, hide_index=True)
