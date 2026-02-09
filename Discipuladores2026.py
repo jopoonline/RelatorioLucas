@@ -12,8 +12,7 @@ st.set_page_config(page_title="Distrito Pro 2026", layout="wide", page_icon="�
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1y3vAXagtbdzaTHGEkPOuWI3TvzcfFYhfO1JUt0GrhG8/edit?usp=sharing"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 2. FUNÇÕES DE DADOS ---
-# Diminuído TTL para 60 segundos para atualizar mais rápido
+# --- 2. FUNÇÕES DE DADOS (COM LIMPEZA DE DATA REFORÇADA) ---
 @st.cache_data(ttl=60)
 def carregar_dados():
     try:
@@ -26,8 +25,14 @@ def carregar_dados():
         if df_v is None or df_v.empty:
             df_v = pd.DataFrame(columns=['Data', 'Líder', 'Vis_Celula', 'Vis_Culto'])
             
-        df_p['Data'] = pd.to_datetime(df_p['Data'], errors='coerce')
-        df_v['Data'] = pd.to_datetime(df_v['Data'], errors='coerce')
+        # --- LIMPEZA DE DATAS ---
+        # O dayfirst=True ajuda a entender 28/02 como dia 28 e não mês 28
+        df_p['Data'] = pd.to_datetime(df_p['Data'], dayfirst=True, errors='coerce')
+        df_v['Data'] = pd.to_datetime(df_v['Data'], dayfirst=True, errors='coerce')
+        
+        # Remove linhas onde a data falhou na conversão
+        df_p = df_p.dropna(subset=['Data'])
+        df_v = df_v.dropna(subset=['Data'])
         
         for col in ['Célula', 'Culto']:
             df_p[col] = pd.to_numeric(df_p[col], errors='coerce').fillna(0).astype(int)
@@ -50,9 +55,8 @@ def salvar_seguro(worksheet, df):
     try:
         df_save = df.copy()
         if 'Data' in df_save.columns:
-            df_save['Data'] = pd.to_datetime(df_save['Data'], errors='coerce')
-            df_save = df_save.dropna(subset=['Data'])
-            df_save['Data'] = df_save['Data'].dt.strftime('%Y-%m-%d')
+            # Ao salvar, padronizamos sempre para AAAA-MM-DD para evitar bagunça na planilha
+            df_save['Data'] = pd.to_datetime(df_save['Data']).dt.strftime('%Y-%m-%d')
         conn.update(spreadsheet=URL_PLANILHA, worksheet=worksheet, data=df_save)
         return True
     except Exception as e:
@@ -97,12 +101,11 @@ tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇ
 
 # --- TAB DASHBOARDS ---
 with tab_dash:
-    # BOTÃO DE ATUALIZAÇÃO FORÇADA
-    if st.button("🔄 Sincronizar Novos Dados da Planilha"):
+    if st.button("🔄 Atualizar e Sincronizar Planilha"):
         st.cache_data.clear()
         st.rerun()
 
-    if st.session_state.db.empty or 'Data' not in st.session_state.db.columns:
+    if st.session_state.db.empty:
         st.info("💡 Sem dados carregados.")
     else:
         lids_atuais = sorted(list(st.session_state.membros_cadastrados.keys()))
@@ -111,13 +114,12 @@ with tab_dash:
         col_m, col_s = st.columns(2)
         mes_sel = col_m.selectbox("Mês:", MESES_NOMES, index=datetime.now().month - 1)
         
-        # Filtragem garantindo que a data seja reconhecida
         df_mes_f = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]]
         
         if df_mes_f.empty:
-            st.warning(f"Sem lançamentos registrados em {mes_sel}.")
+            st.warning(f"Sem lançamentos em {mes_sel}.")
         else:
-            datas_disp = sorted(df_mes_f['Data'].dropna().unique(), reverse=True)
+            datas_disp = sorted(df_mes_f['Data'].unique(), reverse=True)
             data_sel = col_s.selectbox("Semana:", datas_disp, format_func=lambda x: pd.to_datetime(x).strftime('%d/%m/%Y'))
 
             df_sem = st.session_state.db[(st.session_state.db['Data'] == data_sel) & (st.session_state.db['Líder'].isin(lids_f))]
@@ -130,7 +132,7 @@ with tab_dash:
                 elif tipo == "Visitante":
                     total = 0
                     f_val = int(df_v_sem['Vis_Celula' if modo == 'Célula' else 'Vis_Culto'].sum())
-                else: # FA
+                else: 
                     total = sum([1 for l in lids_f for n, t in st.session_state.membros_cadastrados.get(l, {}).items() if t == tipo])
                     f_val = int(df_sem[df_sem['Tipo'] == tipo][modo].sum())
                 return f"{f_val}/{total}" if total > 0 else f"{f_val}"
@@ -144,10 +146,9 @@ with tab_dash:
             c6.markdown(f'<div class="metric-box"><span class="metric-value">{get_count_int("Visitante", "Culto")}</span>Vis. Culto</div>', unsafe_allow_html=True)
 
             st.write("---")
-            st.write("### 📈 Evolução Semanal (Sábados)")
+            st.write("### 📈 Evolução Semanal")
             col_g1, col_g2 = st.columns(2)
             
-            # Gráfico Célula
             df_p_c = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
             df_v_c = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
             df_m_c = pd.merge(df_p_c, df_v_c, on='Data', how='outer').fillna(0).sort_values('Data')
@@ -157,7 +158,6 @@ with tab_dash:
             fig1.update_xaxes(tickformat="%d/%m", tickvals=df_m_c['Data'])
             col_g1.plotly_chart(fig1, use_container_width=True)
             
-            # Gráfico Culto
             df_p_u = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Culto'].sum().reset_index()
             df_v_u = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
             df_m_u = pd.merge(df_p_u, df_v_u, on='Data', how='outer').fillna(0).sort_values('Data')
@@ -168,50 +168,21 @@ with tab_dash:
             col_g2.plotly_chart(fig2, use_container_width=True)
 
             st.write("---")
-            st.write("### 📊 Comparativo Mensal (Média por sábado)")
+            st.write("### 📊 Comparativo Mensal (Média)")
             mes_atual_num = MESES_MAP[mes_sel]
-            # Meses para comparar (Atual e 2 anteriores)
             meses_comp_nums = [mes_atual_num, mes_atual_num-1, mes_atual_num-2]
             meses_comp_nums = [m for m in meses_comp_nums if m > 0]
-            
             comp_list = []
             for m_n in meses_comp_nums:
                 n_m = [k for k, v in MESES_MAP.items() if v == m_n][0]
                 df_p_m = st.session_state.db[(st.session_state.db['Data'].dt.month == m_n) & (st.session_state.db['Líder'].isin(lids_f))]
                 df_v_m = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == m_n) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
-                
                 sabs = len(df_p_m['Data'].unique()) if len(df_p_m['Data'].unique()) > 0 else 1
-                comp_list.append({
-                    "Mês": n_m,
-                    "Célula": round(df_p_m['Célula'].sum() / sabs, 1),
-                    "Culto": round(df_p_m['Culto'].sum() / sabs, 1),
-                    "Visitantes": round(df_v_m['Vis_Celula'].sum() / sabs, 1)
-                })
-            
+                comp_list.append({"Mês": n_m, "Célula": round(df_p_m['Célula'].sum()/sabs,1), "Culto": round(df_p_m['Culto'].sum()/sabs,1), "Visitantes": round(df_v_m['Vis_Celula'].sum()/sabs,1)})
             if comp_list:
-                df_comp = pd.DataFrame(comp_list)
-                fig_comp = px.bar(df_comp, x='Mês', y=['Célula', 'Culto', 'Visitantes'], barmode='group', text_auto=True)
-                st.plotly_chart(fig_comp, use_container_width=True)
+                st.plotly_chart(px.bar(pd.DataFrame(comp_list), x='Mês', y=['Célula', 'Culto', 'Visitantes'], barmode='group', text_auto=True), use_container_width=True)
 
-            # ALERTAS
-            st.write("### 🚨 Monitoramento")
-            col_a1, col_a2 = st.columns(2)
-            with col_a1:
-                st.write("**Faltas 2x Seguidas**")
-                for lider in lids_f:
-                    df_h = st.session_state.db[st.session_state.db['Líder'] == lider].sort_values('Data', ascending=False)
-                    for m in df_h['Nome'].unique():
-                        u = df_h[df_h['Nome'] == m].head(2)
-                        if len(u) == 2 and u['Célula'].sum() == 0:
-                            st.markdown(f'<div class="alert-danger">⚠️ {m} ({lider})</div>', unsafe_allow_html=True)
-            with col_a2:
-                st.write("**Célula sem Visitante 2x**")
-                for lider in lids_f:
-                    df_hv = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'] == lider].sort_values('Data', ascending=False).head(2)
-                    if len(df_hv) == 2 and df_hv['Vis_Celula'].sum() == 0:
-                        st.markdown(f'<div class="alert-warning">🚩 {lider}</div>', unsafe_allow_html=True)
-
-# --- MANUTENÇÃO DAS OUTRAS ABAS (LANÇAR, GESTÃO, OB) ---
+# --- MANUTENÇÃO DAS OUTRAS ABAS (SEM ALTERAÇÕES) ---
 with tab_lanc:
     if not st.session_state.membros_cadastrados:
         st.warning("Cadastre líderes em GESTÃO.")
