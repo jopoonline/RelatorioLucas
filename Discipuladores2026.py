@@ -78,10 +78,10 @@ tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇ
 
 # --- TAB DASHBOARD ---
 with tab_dash:
-    if st.button("🔄 Sincronizar"): st.cache_data.clear(); st.rerun()
+    if st.button("🔄 Sincronizar Dados"): st.cache_data.clear(); st.rerun()
     if not st.session_state.db.empty:
         lids_atuais = sorted(list(st.session_state.membros_cadastrados.keys()))
-        lids_f = st.multiselect("Células:", lids_atuais, default=lids_atuais)
+        lids_f = st.multiselect("Filtrar Células:", lids_atuais, default=lids_atuais)
         
         # Alertas
         datas_u = sorted(st.session_state.db['Data_Ref'].unique(), reverse=True)
@@ -106,22 +106,31 @@ with tab_dash:
             df_s = df_m[(df_m['Data_Ref']==s_r) & (df_m['Líder'].isin(lids_f))]
             dv_s = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data_Ref']==s_r) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
             
+            # --- CARDS COM LÓGICA X/Y ---
             c1, c2, c3, c4, c5, c6 = st.columns(6)
-            def card(tipo, modo):
-                if tipo=="M": return int(df_s[df_s['Tipo'].isin(['Membro','Liderança'])][modo].sum())
-                if tipo=="V": return int(dv_s['Vis_Celula' if modo=='Célula' else 'Vis_Culto'].sum() if not dv_s.empty else 0)
-                return int(df_s[df_s['Tipo']=="FA"][modo].sum())
-            c1.markdown(f'<div class="metric-box">Mem. Célula<br><span class="metric-value">{card("M","Célula")}</span></div>', unsafe_allow_html=True)
-            c2.markdown(f'<div class="metric-box">FA Célula<br><span class="metric-value">{card("FA","Célula")}</span></div>', unsafe_allow_html=True)
-            c3.markdown(f'<div class="metric-box">Vis. Célula<br><span class="metric-value">{card("V","Célula")}</span></div>', unsafe_allow_html=True)
-            c4.markdown(f'<div class="metric-box">Mem. Culto<br><span class="metric-value">{card("M","Culto")}</span></div>', unsafe_allow_html=True)
-            c5.markdown(f'<div class="metric-box">FA Culto<br><span class="metric-value">{card("FA","Culto")}</span></div>', unsafe_allow_html=True)
-            c6.markdown(f'<div class="metric-box">Vis. Culto<br><span class="metric-value">{card("V","Culto")}</span></div>', unsafe_allow_html=True)
+            def get_card_val(tipo, modo):
+                if tipo == "M":
+                    # Soma Membros + Líderes cadastrados (1 por célula selecionada)
+                    total = sum([1 for l in lids_f for n, t in st.session_state.membros_cadastrados.get(l, {}).items() if t == "Membro"]) + len(lids_f)
+                    pres = int(df_s[df_s['Tipo'].isin(['Membro', 'Liderança'])][modo].sum())
+                    return f"{pres}/{total}"
+                elif tipo == "FA":
+                    total = sum([1 for l in lids_f for n, t in st.session_state.membros_cadastrados.get(l, {}).items() if t == "FA"])
+                    pres = int(df_s[df_s['Tipo'] == "FA"][modo].sum())
+                    return f"{pres}/{total}"
+                else: # Visitantes
+                    return str(int(dv_s['Vis_Celula' if modo == 'Célula' else 'Vis_Culto'].sum()) if not dv_s.empty else 0)
+
+            c1.markdown(f'<div class="metric-box">Mem. Célula<br><span class="metric-value">{get_card_val("M","Célula")}</span></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="metric-box">FA Célula<br><span class="metric-value">{get_card_val("FA","Célula")}</span></div>', unsafe_allow_html=True)
+            c3.markdown(f'<div class="metric-box">Vis. Célula<br><span class="metric-value">{get_card_val("V","Célula")}</span></div>', unsafe_allow_html=True)
+            c4.markdown(f'<div class="metric-box">Mem. Culto<br><span class="metric-value">{get_card_val("M","Culto")}</span></div>', unsafe_allow_html=True)
+            c5.markdown(f'<div class="metric-box">FA Culto<br><span class="metric-value">{get_card_val("FA","Culto")}</span></div>', unsafe_allow_html=True)
+            c6.markdown(f'<div class="metric-box">Vis. Culto<br><span class="metric-value">{get_card_val("V","Culto")}</span></div>', unsafe_allow_html=True)
             
-            st.write("### 📈 Evolução Semanal")
+            st.write("### 📈 Evolução Semanal (Membros+FA vs Visitantes)")
             cg1, cg2 = st.columns(2)
-            # RESOLUÇÃO DO ERRO: Adicionado 'key' único em plotly_chart
-            for col, modo, k in zip([cg1, cg2], ['Célula', 'Culto'], ['chart_cel', 'chart_cul']):
+            for col, modo, k in zip([cg1, cg2], ['Célula', 'Culto'], ['ch_cel', 'ch_cul']):
                 g_d = df_m[df_m['Líder'].isin(lids_f)].groupby('Data_Ref')[modo].sum().reset_index()
                 g_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==MESES_MAP[m_s])&(st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data_Ref')['Vis_Celula' if modo=='Célula' else 'Vis_Culto'].sum().reset_index()
                 mrg = pd.merge(g_d, g_v, on='Data_Ref', how='outer').fillna(0).sort_values('Data_Ref')
@@ -132,7 +141,27 @@ with tab_dash:
                 fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 col.plotly_chart(fig, use_container_width=True, key=k)
 
-# --- TAB LANÇAR ---
+            # --- DASHBOARD MENSAL ---
+            st.divider()
+            st.subheader(f"📊 Resumo Mensal: {m_s}")
+            dm1, dm2 = st.columns(2)
+            tot_cel = df_m[df_m['Líder'].isin(lids_f)]['Célula'].sum() + st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==MESES_MAP[m_s])&(st.session_state.db_visitantes['Líder'].isin(lids_f))]['Vis_Celula'].sum()
+            tot_cul = df_m[df_m['Líder'].isin(lids_f)]['Culto'].sum() + st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==MESES_MAP[m_s])&(st.session_state.db_visitantes['Líder'].isin(lids_f))]['Vis_Culto'].sum()
+            dm1.metric("Acumulado Célula", int(tot_cel))
+            dm2.metric("Acumulado Culto", int(tot_cul))
+            
+            # Comparativo 2 meses anteriores
+            comp_data = []
+            for i in range(2, -1, -1):
+                idx = MESES_MAP[m_s] - i
+                if idx > 0:
+                    nome_m = MESES_NOMES[idx-1]
+                    soma = st.session_state.db[(st.session_state.db['MesNum']==idx)&(st.session_state.db['Líder'].isin(lids_f))]['Célula'].sum()
+                    comp_data.append({"Mês": nome_m, "Total": int(soma)})
+            if len(comp_data) > 1:
+                st.plotly_chart(px.bar(pd.DataFrame(comp_data), x='Mês', y='Total', title="Comparativo Célula (Meses Anteriores)", text_auto=True), use_container_width=True)
+
+# --- TAB LANÇAR (INALTEADA) ---
 with tab_lanc:
     if st.session_state.membros_cadastrados:
         l_m = st.selectbox("Mês Lançar", MESES_NOMES, index=datetime.now().month-1)
@@ -140,22 +169,20 @@ with tab_lanc:
         d_l = st.selectbox("Sábado", datas_s, format_func=lambda x: x.strftime('%d/%m'))
         l_l = st.selectbox("Sua Célula", sorted(st.session_state.membros_cadastrados.keys()))
         novos = []
-        cn, ce, cu = st.columns([2,1,1])
-        lpce = ce.checkbox("Célula", value=True, key="lpce")
-        lpcu = cu.checkbox("Culto", value=True, key="lpcu")
+        cn, ce, cu = st.columns([2,1,1]); lpce = ce.checkbox("Célula", value=True, key="lpce"); lpcu = cu.checkbox("Culto", value=True, key="lpcu")
         novos.append({"Data": d_l, "Líder": l_l, "Nome": l_l, "Tipo": "Liderança", "Célula": 1 if lpce else 0, "Culto": 1 if lpcu else 0})
         for n, t in st.session_state.membros_cadastrados.get(l_l, {}).items():
             cn, ce, cu = st.columns([2,1,1]); cn.write(f"{n} ({t})")
             pce, pcu = ce.checkbox("Célula", key=f"c_{n}"), cu.checkbox("Culto", key=f"u_{n}")
             novos.append({"Data": d_l, "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if pce else 0, "Culto": 1 if pcu else 0})
         vce, vcu = st.number_input("Vis. Célula", 0), st.number_input("Vis. Culto", 0)
-        if st.button("💾 SALVAR LANÇAMENTO", use_container_width=True):
+        if st.button("💾 SALVAR LANÇAMENTO"):
             dt = d_l.strftime('%Y-%m-%d')
             dfp = pd.concat([st.session_state.db[~((st.session_state.db['Data_Ref']==dt)&(st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
             dfv = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data_Ref']==dt)&(st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": vce, "Vis_Culto": vcu}])])
             if salvar_seguro("Presencas", dfp) and salvar_seguro("Visitantes", dfv): st.cache_data.clear(); st.rerun()
 
-# --- TAB GESTÃO ---
+# --- TAB GESTÃO (INALTEADA) ---
 with tab_gestao:
     g1, g2 = st.columns(2)
     with g1:
@@ -168,9 +195,9 @@ with tab_gestao:
             salvar_seguro("Membros", pd.DataFrame(lista)); st.rerun()
     with g2:
         if st.session_state.membros_cadastrados:
-            cs = st.selectbox("Célula para Membro:", sorted(st.session_state.membros_cadastrados.keys()))
+            cs = st.selectbox("Célula:", sorted(st.session_state.membros_cadastrados.keys()))
             nm = st.text_input("Nome Pessoa")
-            tm = st.radio("Tipo Pessoa", ["Membro", "FA"], horizontal=True)
+            tm = st.radio("Tipo", ["Membro", "FA"], horizontal=True)
             if st.button("Adicionar"):
                 if nm: st.session_state.membros_cadastrados[cs][nm]=tm; lista=[];
                 for ld, ps in st.session_state.membros_cadastrados.items():
@@ -178,27 +205,27 @@ with tab_gestao:
                     else: [lista.append({"Líder":ld,"Nome":n,"Tipo":t}) for n,t in ps.items()]
                 salvar_seguro("Membros", pd.DataFrame(lista)); st.rerun()
 
-# --- TAB RELATÓRIO OB ---
+# --- TAB RELATÓRIO OB (REFORÇADA) ---
 with tab_ob:
     st.header("📋 Relatório Mensal OB")
-    m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1)
+    m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1, key="m_ob_sel")
     df_ob = st.session_state.db[st.session_state.db['MesNum'] == MESES_MAP[m_ob]]
     df_v_ob = st.session_state.db_visitantes[st.session_state.db_visitantes['MesNum'] == MESES_MAP[m_ob]]
     if not df_ob.empty:
-        st.subheader("📊 Totais da Rede")
+        st.subheader("📊 Totais Semanais da Rede")
         res_sem = []
         for d_r in sorted(df_ob['Data_Ref'].unique()):
             d_fmt = datetime.strptime(d_r, '%Y-%m-%d').strftime('%d/%m')
             df_s = df_ob[df_ob['Data_Ref'] == d_r]
             m_ce = df_s[df_s['Tipo'].isin(['Membro','Liderança'])]['Célula'].sum()
             m_cu = df_s[df_s['Tipo'].isin(['Membro','Liderança'])]['Culto'].sum()
-            fa_ce, fa_cu = df_s[df_s['Tipo']=="FA"]['Célula'].sum(), df_s[df_s['Tipo']=="FA"]['Culto'].sum()
+            f_ce, f_cu = df_s[df_s['Tipo']=="FA"]['Célula'].sum(), df_s[df_s['Tipo']=="FA"]['Culto'].sum()
             v_ce, v_cu = df_v_ob[df_v_ob['Data_Ref']==d_r]['Vis_Celula'].sum(), df_v_ob[df_v_ob['Data_Ref']==d_r]['Vis_Culto'].sum()
-            res_sem.append({"Data": d_fmt, "Membros (Cel/Cul)": f"{m_ce}/{m_cu}", "FA": f"{fa_ce}/{fa_cu}", "Vis": f"{v_ce}/{v_cu}", "Total": f"{m_ce+fa_ce+v_ce}/{m_cu+fa_cu+v_cu}"})
+            res_sem.append({"Data": d_fmt, "Membros": f"{m_ce}/{m_cu}", "FA": f"{f_ce}/{f_cu}", "Vis": f"{v_ce}/{v_cu}", "Total": f"{m_ce+f_ce+v_ce}/{m_cu+f_cu+v_cu}"})
         st.table(pd.DataFrame(res_sem))
         st.divider()
-        st.subheader("🕵️ Chamada por Célula")
-        cel_sel = st.selectbox("Ver Célula:", sorted(st.session_state.membros_cadastrados.keys()))
+        st.subheader("🕵️ Detalhamento de Presença")
+        cel_sel = st.selectbox("Ver Célula:", sorted(st.session_state.membros_cadastrados.keys()), key="cel_ob")
         m_cel = [{"Nome": cel_sel, "Tipo": "Liderança"}] + [{"Nome": n, "Tipo": t} for n, t in st.session_state.membros_cadastrados.get(cel_sel, {}).items()]
         d_mes = sorted(df_ob['Data_Ref'].unique()); cham_d = []
         for p in m_cel:
