@@ -132,7 +132,6 @@ with tab_dash:
                 fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 col.plotly_chart(fig, use_container_width=True, key=k)
 
-            # --- CORREÇÃO: PERFORMANCE EM BARRAS (3 MESES) ---
             st.divider()
             st.subheader(f"📊 Performance: {m_s} e Meses Anteriores")
             idx_analise = MESES_MAP[m_s]
@@ -143,11 +142,9 @@ with tab_dash:
                     nome_m = MESES_NOMES[idx-1]
                     d_mes = st.session_state.db[(st.session_state.db['MesNum']==idx) & (st.session_state.db['Líder'].isin(lids_f))]
                     v_mes = st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==idx) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
-                    
                     val_fa = int(d_mes[d_mes['Tipo']=="FA"]['Célula'].sum())
                     val_mem = int(d_mes[d_mes['Tipo'].isin(['Membro','Liderança'])]['Célula'].sum())
                     val_vis = int(v_mes['Vis_Celula'].sum())
-                    
                     dados_comp.append({"Mês": nome_m, "Métrica": "Membro + FA", "Valor": val_mem + val_fa})
                     dados_comp.append({"Mês": nome_m, "Métrica": "Visitante", "Valor": val_vis})
                     dados_comp.append({"Mês": nome_m, "Métrica": "Total Geral", "Valor": val_mem + val_fa + val_vis})
@@ -159,35 +156,39 @@ with tab_dash:
                                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
                 st.plotly_chart(fig_bar, use_container_width=True)
 
-# --- ABA LANÇAR (MOBILE) ---
+# --- ABA LANÇAR (MOBILE OPTIMIZED) ---
 with tab_lanc:
     if st.session_state.membros_cadastrados:
         l_m = st.selectbox("Mês Lançar", MESES_NOMES, index=datetime.now().month-1)
-        col_data, col_cel = st.columns(2)
-        with col_data:
-            datas_s = [date(2026, MESES_MAP[l_m], d) for d in range(1, 32) if (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).month == MESES_MAP[l_m] and (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).weekday() == 5]
-            d_l = st.selectbox("Sábado", datas_s, format_func=lambda x: x.strftime('%d/%m'))
-        with col_cel:
-            l_l = st.selectbox("Sua Célula", sorted(st.session_state.membros_cadastrados.keys()))
+        c_dt, c_cl = st.columns(2)
+        datas_s = [date(2026, MESES_MAP[l_m], d) for d in range(1, 32) if (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).month == MESES_MAP[l_m] and (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).weekday() == 5]
+        d_l = c_dt.selectbox("Sábado", datas_s, format_func=lambda x: x.strftime('%d/%m'))
+        l_l = c_cl.selectbox("Sua Célula", sorted(st.session_state.membros_cadastrados.keys()))
+        
         st.divider()
-        ch1, ch2, ch3 = st.columns([2, 1, 1])
-        ch1.markdown("**Pessoa**"); ch2.markdown("🏠 **Célula**"); ch3.markdown("⛪ **Culto**")
+        h1, h2, h3 = st.columns([2, 1, 1])
+        h1.caption("👤 NOME")
+        h2.caption("🏠 CEL")
+        h3.caption("⛪ CUL")
+
         novos = []
-        c_n, c_ce, c_cu = st.columns([2, 1, 1])
-        c_n.markdown(f"**{l_l}** (Líder)")
-        lpce = c_ce.checkbox(" ", value=True, key="lpce")
-        lpcu = c_cu.checkbox(" ", value=True, key="lpcu")
-        novos.append({"Data": d_l.strftime('%d/%m/%Y'), "Líder": l_l, "Nome": l_l, "Tipo": "Liderança", "Célula": 1 if lpce else 0, "Culto": 1 if lpcu else 0})
+        def criar_linha(nome, tipo, chave):
+            col_n, col_ce, col_cu = st.columns([2, 1, 1])
+            col_n.markdown(f"**{nome}**")
+            p_ce = col_ce.checkbox(" ", key=f"ce_{chave}", value=(tipo == "Liderança"))
+            p_cu = col_cu.checkbox(" ", key=f"cu_{chave}", value=(tipo == "Liderança"))
+            return {"Data": d_l.strftime('%d/%m/%Y'), "Líder": l_l, "Nome": nome, "Tipo": tipo, "Célula": 1 if p_ce else 0, "Culto": 1 if p_cu else 0}
+
+        novos.append(criar_linha(l_l, "Liderança", "lider_row"))
         for n, t in st.session_state.membros_cadastrados.get(l_l, {}).items():
-            c_n, c_ce, c_cu = st.columns([2, 1, 1])
-            c_n.markdown(f"{n} <br><small>({t})</small>", unsafe_allow_html=True)
-            pce = c_ce.checkbox(" ", key=f"c_{n}")
-            pcu = c_cu.checkbox(" ", key=f"u_{n}")
-            novos.append({"Data": d_l.strftime('%d/%m/%Y'), "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if pce else 0, "Culto": 1 if pcu else 0})
+            novos.append(criar_linha(n, t, n))
+        
         st.divider()
-        col_v1, col_v2 = st.columns(2)
-        vce = col_v1.number_input("🏠 Vis. Célula", 0)
-        vcu = col_v2.number_input("⛪ Vis. Culto", 0)
+        st.write("✨ **Visitantes**")
+        v_c1, v_c2 = st.columns(2)
+        vce = v_c1.number_input("🏠 Na Célula", 0)
+        vcu = v_c2.number_input("⛪ No Culto", 0)
+        
         if st.button("💾 SALVAR LANÇAMENTO", use_container_width=True, type="primary"):
             dt_ref = d_l.strftime('%d/%m/%Y')
             dfp = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_ref)&(st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
@@ -290,4 +291,3 @@ with tab_ob:
                 else: ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = "❌ | ❌"
             cham_d.append(ln)
         st.dataframe(pd.DataFrame(cham_d), use_container_width=True, hide_index=True)
-
