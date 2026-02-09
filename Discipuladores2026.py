@@ -136,39 +136,72 @@ with tab_dash:
             c5.markdown(f'<div class="metric-box"><span class="metric-value">{get_count_int("FA", "Culto")}</span>FA Culto</div>', unsafe_allow_html=True)
             c6.markdown(f'<div class="metric-box"><span class="metric-value">{get_count_int("Visitante", "Culto")}</span>Vis. Culto</div>', unsafe_allow_html=True)
 
-            st.write("### 🚨 Monitoramento Crítico")
+            st.write("---")
+            st.write("### 📈 Evolução Semanal (Sábados)")
+            col_g1, col_g2 = st.columns(2)
+            
+            # Gráfico Célula
+            df_p_c = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
+            df_v_c = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
+            df_m_c = pd.merge(df_p_c, df_v_c, on='Data', how='outer').fillna(0).sort_values('Data')
+            
+            fig1 = px.line(df_m_c, x='Data', y=['Célula', 'Vis_Celula'], title="Frequência Célula", markers=True, text='value')
+            fig1.update_traces(textposition="top center")
+            fig1.update_xaxes(tickformat="%d/%m", tickvals=df_m_c['Data'])
+            col_g1.plotly_chart(fig1, use_container_width=True)
+            
+            # Gráfico Culto
+            df_p_u = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Culto'].sum().reset_index()
+            df_v_u = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
+            df_m_u = pd.merge(df_p_u, df_v_u, on='Data', how='outer').fillna(0).sort_values('Data')
+            
+            fig2 = px.line(df_m_u, x='Data', y=['Culto', 'Vis_Culto'], title="Frequência Culto", markers=True, text='value')
+            fig2.update_traces(textposition="top center")
+            fig2.update_xaxes(tickformat="%d/%m", tickvals=df_m_u['Data'])
+            col_g2.plotly_chart(fig2, use_container_width=True)
+
+            st.write("---")
+            st.write("### 📊 Comparativo Mensal (Médias)")
+            # Lógica para pegar meses anteriores
+            mes_atual_num = MESES_MAP[mes_sel]
+            meses_comp = [mes_atual_num, mes_atual_num-1, mes_atual_num-2]
+            meses_comp = [m for m in meses_comp if m > 0]
+            
+            comp_data = []
+            for m_num in meses_comp:
+                nome_m = [k for k, v in MESES_MAP.items() if v == m_num][0]
+                df_p_m = st.session_state.db[(st.session_state.db['Data'].dt.month == m_num) & (st.session_state.db['Líder'].isin(lids_f))]
+                df_v_m = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == m_num) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
+                
+                # Média por sábado
+                n_sabados = len(df_p_m['Data'].unique()) if len(df_p_m['Data'].unique()) > 0 else 1
+                media_cel = df_p_m['Célula'].sum() / n_sabados
+                media_cul = df_p_m['Culto'].sum() / n_sabados
+                media_vis = df_v_m['Vis_Celula'].sum() / n_sabados
+                
+                comp_data.append({"Mês": nome_m, "Célula": round(media_cel,1), "Culto": round(media_cul,1), "Visitantes": round(media_vis,1)})
+            
+            df_comp = pd.DataFrame(comp_data)
+            fig_comp = px.bar(df_comp, x='Mês', y=['Célula', 'Culto', 'Visitantes'], barmode='group', text_auto=True, title="Média de Frequência por Mês")
+            st.plotly_chart(fig_comp, use_container_width=True)
+
+            # ALERTAS
+            st.write("### 🚨 Monitoramento")
             col_a1, col_a2 = st.columns(2)
             with col_a1:
-                st.write("**Ausências (2 semanas seguidas)**")
+                st.write("**Faltas 2x Seguidas**")
                 for lider in lids_f:
                     df_h = st.session_state.db[st.session_state.db['Líder'] == lider].sort_values('Data', ascending=False)
                     for m in df_h['Nome'].unique():
                         u = df_h[df_h['Nome'] == m].head(2)
                         if len(u) == 2 and u['Célula'].sum() == 0:
-                            st.markdown(f'<div class="alert-danger">⚠️ {m} ({lider}): Faltou 2x na Célula</div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="alert-danger">⚠️ {m} ({lider})</div>', unsafe_allow_html=True)
             with col_a2:
-                st.write("**Células sem Visitantes (2 semanas seguidas)**")
+                st.write("**Célula sem Visitante 2x**")
                 for lider in lids_f:
                     df_hv = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'] == lider].sort_values('Data', ascending=False).head(2)
                     if len(df_hv) == 2 and df_hv['Vis_Celula'].sum() == 0:
-                        st.markdown(f'<div class="alert-warning">🚩 Célula {lider}: 2 semanas sem visitantes</div>', unsafe_allow_html=True)
-
-            st.write("### 📈 Evolução")
-            col_g1, col_g2 = st.columns(2)
-            
-            # Gráfico Célula
-            df_graf_p_cel = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
-            df_graf_v_cel = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
-            df_merge_cel = pd.merge(df_graf_p_cel, df_graf_v_cel, on='Data', how='outer').fillna(0).sort_values('Data')
-            fig1 = px.line(df_merge_cel, x='Data', y=['Célula', 'Vis_Celula'], title="Frequência: Célula", markers=True, color_discrete_sequence=['#38BDF8', '#94A3B8'])
-            col_g1.plotly_chart(fig1, use_container_width=True)
-            
-            # Gráfico Culto (Agora igual ao de Célula)
-            df_graf_p_cul = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Culto'].sum().reset_index()
-            df_graf_v_cul = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
-            df_merge_cul = pd.merge(df_graf_p_cul, df_graf_v_cul, on='Data', how='outer').fillna(0).sort_values('Data')
-            fig2 = px.line(df_merge_cul, x='Data', y=['Culto', 'Vis_Culto'], title="Frequência: Culto", markers=True, color_discrete_sequence=['#0284C7', '#64748B'])
-            col_g2.plotly_chart(fig2, use_container_width=True)
+                        st.markdown(f'<div class="alert-warning">🚩 {lider}</div>', unsafe_allow_html=True)
 
 # --- TAB LANÇAR (Mantida) ---
 with tab_lanc:
