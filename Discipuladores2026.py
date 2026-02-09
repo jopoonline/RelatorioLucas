@@ -18,12 +18,17 @@ def carregar_dados():
         df_p = conn.read(spreadsheet=URL_PLANILHA, worksheet="Presencas")
         df_v = conn.read(spreadsheet=URL_PLANILHA, worksheet="Visitantes")
         df_m = conn.read(spreadsheet=URL_PLANILHA, worksheet="Membros")
-        if not df_p.empty: 
-            df_p['Data'] = pd.to_datetime(df_p['Data'])
-            df_p[['Célula', 'Culto']] = df_p[['Célula', 'Culto']].fillna(0).astype(int)
-        if not df_v.empty: 
-            df_v['Data'] = pd.to_datetime(df_v['Data'])
-            df_v[['Vis_Celula', 'Vis_Culto']] = df_v[['Vis_Celula', 'Vis_Culto']].fillna(0).astype(int)
+        
+        # Garante colunas mínimas se estiverem vazios
+        if df_p.empty: df_p = pd.DataFrame(columns=['Data', 'Líder', 'Nome', 'Tipo', 'Célula', 'Culto'])
+        if df_v.empty: df_v = pd.DataFrame(columns=['Data', 'Líder', 'Vis_Celula', 'Vis_Culto'])
+        
+        # Conversão e Tratamento
+        df_p['Data'] = pd.to_datetime(df_p['Data'], errors='coerce')
+        df_v['Data'] = pd.to_datetime(df_v['Data'], errors='coerce')
+        
+        df_p[['Célula', 'Culto']] = df_p[['Célula', 'Culto']].fillna(0).astype(int)
+        df_v[['Vis_Celula', 'Vis_Culto']] = df_v[['Vis_Celula', 'Vis_Culto']].fillna(0).astype(int)
         
         m_dict = {}
         if not df_m.empty:
@@ -33,8 +38,9 @@ def carregar_dados():
                 if row['Nome'] != "LIDER_INICIAL":
                     m_dict[l][row['Nome']] = row['Tipo']
         return df_p, df_v, m_dict
-    except:
-        return pd.DataFrame(), pd.DataFrame(), {}
+    except Exception as e:
+        st.error(f"Erro ao carregar Planilha: {e}")
+        return pd.DataFrame(columns=['Data']), pd.DataFrame(columns=['Data']), {}
 
 def sincronizar_membros():
     lista = []
@@ -74,7 +80,7 @@ tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇ
 
 # --- TAB DASHBOARDS ---
 with tab_dash:
-    if st.session_state.db.empty:
+    if st.session_state.db.empty or 'Data' not in st.session_state.db.columns:
         st.info("💡 Sem dados para exibir.")
     else:
         lids_atuais = sorted(list(st.session_state.membros_cadastrados.keys()))
@@ -82,12 +88,15 @@ with tab_dash:
         
         col_m, col_s = st.columns(2)
         mes_sel = col_m.selectbox("Selecione o Mês:", MESES_NOMES, index=datetime.now().month - 1)
-        df_mes_f = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]]
+        
+        # Filtro de segurança para a coluna Data
+        df_base = st.session_state.db
+        df_mes_f = df_base[df_base['Data'].dt.month == MESES_MAP[mes_sel]]
         
         if df_mes_f.empty:
             st.warning(f"Sem dados em {mes_sel}.")
         else:
-            datas_disp = sorted(df_mes_f['Data'].unique(), reverse=True)
+            datas_disp = sorted(df_mes_f['Data'].dropna().unique(), reverse=True)
             data_sel = col_s.selectbox("Selecione a Semana:", datas_disp, format_func=lambda x: pd.to_datetime(x).strftime('%d/%m/%Y'))
 
             df_sem = st.session_state.db[(st.session_state.db['Data'] == data_sel) & (st.session_state.db['Líder'].isin(lids_f))]
@@ -115,7 +124,6 @@ with tab_dash:
 
             col_graf, col_alert = st.columns([2, 1])
             with col_graf:
-                # GRÁFICO 1: FREQUÊNCIA SEMANAL - CÉLULA (Linha azul)
                 st.write("#### Frequência Semanal - Célula")
                 df_mes_p = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Célula'].sum().reset_index()
                 df_mes_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
@@ -127,7 +135,6 @@ with tab_dash:
                 fig_cel.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=20), xaxis=dict(tickformat="%d/%m", tickmode='array', tickvals=df_line_cel['Data']))
                 st.plotly_chart(fig_cel, use_container_width=True)
 
-                # GRÁFICO 2: FREQUÊNCIA SEMANAL - CULTO (Linha azul)
                 st.write("#### Frequência Semanal - Culto")
                 df_mes_p_u = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Culto'].sum().reset_index()
                 df_mes_v_u = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
@@ -139,17 +146,16 @@ with tab_dash:
                 fig_cul.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=20), xaxis=dict(tickformat="%d/%m", tickmode='array', tickvals=df_line_cul['Data']))
                 st.plotly_chart(fig_cul, use_container_width=True)
 
-                # GRÁFICO 3: EVOLUÇÃO MENSAL (2 meses anteriores)
                 st.write("#### Evolução Mensal Retroativa (2 Meses Anteriores)")
                 mes_ref = MESES_MAP[mes_sel]
-                meses_anteriores = [(mes_ref - 2), (mes_ref - 1)]
-                meses_anteriores = [m if m > 0 else m + 12 for m in meses_anteriores]
+                meses_ant = [(mes_ref - 2), (mes_ref - 1)]
+                meses_ant = [m if m > 0 else m + 12 for m in meses_ant]
                 
-                df_retro = st.session_state.db[(st.session_state.db['Data'].dt.month.isin(meses_anteriores)) & (st.session_state.db['Líder'].isin(lids_f))].copy()
+                df_retro = st.session_state.db[(st.session_state.db['Data'].dt.month.isin(meses_ant)) & (st.session_state.db['Líder'].isin(lids_f))].copy()
                 if not df_retro.empty:
                     df_retro['Mes_Num'] = df_retro['Data'].dt.month
                     res_retro_p = df_retro.groupby('Mes_Num')['Célula'].sum().reset_index()
-                    df_retro_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month.isin(meses_anteriores)) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].copy()
+                    df_retro_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month.isin(meses_ant)) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].copy()
                     df_retro_v['Mes_Num'] = df_retro_v['Data'].dt.month
                     res_retro_v = df_retro_v.groupby('Mes_Num')['Vis_Celula'].sum().reset_index()
                     res_final = pd.merge(res_retro_p, res_retro_v, on='Mes_Num', how='outer').fillna(0)
@@ -170,10 +176,6 @@ with tab_dash:
                         u = df_h[df_h['Nome'] == m].head(2)
                         if len(u) == 2 and u['Célula'].sum() == 0:
                             st.markdown(f'<div class="alert-danger">⚠️ {m} ({lider}): Faltou 2x</div>', unsafe_allow_html=True)
-                for lider in lids_f:
-                    df_v_h = st.session_state.db_visitantes[st.session_state.db_visitantes['Líder'] == lider].sort_values('Data', ascending=False).head(2)
-                    if len(df_v_h) == 2 and df_v_h['Vis_Celula'].sum() == 0:
-                        st.markdown(f'<div class="alert-danger">📉 {lider}: 0 Visitantes</div>', unsafe_allow_html=True)
 
 # --- TAB LANÇAR ---
 with tab_lanc:
@@ -182,7 +184,9 @@ with tab_lanc:
     else:
         ca, cb, cc = st.columns(3)
         m_l = ca.selectbox("Mês Lançamento", MESES_NOMES, index=datetime.now().month-1)
-        d_l = cb.selectbox("Data", [d for d in [date(2026, MESES_MAP[m_l], 1) + timedelta(days=x) for x in range(32)] if d.month == MESES_MAP[m_l] and d.weekday() == 5], format_func=lambda x: x.strftime('%d/%m'))
+        # Filtra apenas sábados de 2026 para o mês selecionado
+        datas_sab = [date(2026, MESES_MAP[m_l], d) for d in range(1, 32) if (date(2026, MESES_MAP[m_l], 1) + timedelta(days=d-1)).month == MESES_MAP[m_l] and (date(2026, MESES_MAP[m_l], 1) + timedelta(days=d-1)).weekday() == 5]
+        d_l = cb.selectbox("Data (Sábado)", datas_sab, format_func=lambda x: x.strftime('%d/%m'))
         l_l = cc.selectbox("Líder", sorted(st.session_state.membros_cadastrados.keys()))
         
         va, vb = st.columns(2)
@@ -202,10 +206,11 @@ with tab_lanc:
             dt_l = pd.to_datetime(d_l)
             df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_l) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
             conn.update(spreadsheet=URL_PLANILHA, worksheet="Presencas", data=df_p_new)
+            
             df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_l) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
             conn.update(spreadsheet=URL_PLANILHA, worksheet="Visitantes", data=df_v_new)
             st.cache_data.clear()
-            st.success("Salvo!")
+            st.success("Salvo com sucesso!")
             st.rerun()
 
 # --- TAB GESTÃO ---
@@ -226,7 +231,7 @@ with tab_gestao:
                 sincronizar_membros(); st.rerun()
 
     st.divider()
-    st.subheader("🗑️ Área de Exclusão / Edição")
+    st.subheader("🗑️ Área de Exclusão")
     lids_lista = sorted(st.session_state.membros_cadastrados.keys())
     if lids_lista:
         col_ed1, col_ed2 = st.columns(2)
@@ -235,41 +240,41 @@ with tab_gestao:
             if l_ed in st.session_state.membros_cadastrados and st.session_state.membros_cadastrados[l_ed]:
                 p_ed = st.selectbox("Selecione a Pessoa:", sorted(st.session_state.membros_cadastrados[l_ed].keys()))
                 tipo_atual = st.session_state.membros_cadastrados[l_ed][p_ed]
-                st.info(f"Tipo atual: {tipo_atual}")
-                ce1, ce2 = st.columns(2)
-                if ce1.button(f"Mudar para {'FA' if tipo_atual == 'Membro' else 'Membro'}"):
-                    st.session_state.membros_cadastrados[l_ed][p_ed] = "FA" if tipo_atual == "Membro" else "Membro"
-                    sincronizar_membros(); st.rerun()
-                if ce2.button("Excluir Pessoa", type="primary"):
+                st.info(f"Tipo: {tipo_atual}")
+                if st.button("Excluir Pessoa", type="primary"):
                     del st.session_state.membros_cadastrados[l_ed][p_ed]
                     sincronizar_membros(); st.rerun()
-            else:
-                st.write("Célula vazia.")
         with col_ed2:
             l_del = st.selectbox("Célula a excluir:", lids_lista, key="l_del")
             if st.button("EXCLUIR CÉLULA INTEIRA", type="primary"):
-                if l_del in st.session_state.membros_cadastrados:
-                    del st.session_state.membros_cadastrados[l_del]
-                    sincronizar_membros(); st.rerun()
+                del st.session_state.membros_cadastrados[l_del]
+                sincronizar_membros(); st.rerun()
 
 # --- TAB RELATÓRIO OB ---
 with tab_ob:
     st.subheader("📋 Relatório Semanal")
     mes_ob = st.selectbox("Relatório de:", MESES_NOMES, index=datetime.now().month-1, key="m_ob")
-    df_p_ob = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_ob]]
-    if not df_p_ob.empty:
-        for sem in sorted(df_p_ob['Data'].unique(), reverse=True):
-            st.write(f"#### 📅 Semana: {pd.to_datetime(sem).strftime('%d/%m/%Y')}")
-            dados_ob = []
-            for lid in sorted(st.session_state.membros_cadastrados.keys()):
-                f_p = df_p_ob[(df_p_ob['Data'] == sem) & (df_p_ob['Líder'] == lid)]
-                f_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == sem) & (st.session_state.db_visitantes['Líder'] == lid)]
-                m_t = sum(1 for n, t in st.session_state.membros_cadastrados[lid].items() if t == "Membro")
-                fa_t = sum(1 for n, t in st.session_state.membros_cadastrados[lid].items() if t == "FA")
-                dados_ob.append({
-                    "Líder": lid,
-                    "Membros Cél/Cult": f"{int(f_p[f_p['Tipo']=='Membro']['Célula'].sum())}/{m_t} | {int(f_p[f_p['Tipo']=='Membro']['Culto'].sum())}/{m_t}",
-                    "FA Cél/Cult": f"{int(f_p[f_p['Tipo']=='FA']['Célula'].sum())}/{fa_t} | {int(f_p[f_p['Tipo']=='FA']['Culto'].sum())}/{fa_t}",
-                    "Vis. Cél/Cult": f"{int(f_v['Vis_Celula'].sum())} | {int(f_v['Vis_Culto'].sum())}"
-                })
-            st.table(pd.DataFrame(dados_ob))
+    
+    # Proteção para coluna Data
+    if not st.session_state.db.empty and 'Data' in st.session_state.db.columns:
+        df_p_ob = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_ob]]
+        if not df_p_ob.empty:
+            for sem in sorted(df_p_ob['Data'].dropna().unique(), reverse=True):
+                st.write(f"#### 📅 Semana: {pd.to_datetime(sem).strftime('%d/%m/%Y')}")
+                dados_ob = []
+                for lid in sorted(st.session_state.membros_cadastrados.keys()):
+                    f_p = df_p_ob[(df_p_ob['Data'] == sem) & (df_p_ob['Líder'] == lid)]
+                    f_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == sem) & (st.session_state.db_visitantes['Líder'] == lid)]
+                    m_t = sum(1 for n, t in st.session_state.membros_cadastrados[lid].items() if t == "Membro")
+                    fa_t = sum(1 for n, t in st.session_state.membros_cadastrados[lid].items() if t == "FA")
+                    dados_ob.append({
+                        "Líder": lid,
+                        "Membros Cél/Cult": f"{int(f_p[f_p['Tipo']=='Membro']['Célula'].sum())}/{m_t} | {int(f_p[f_p['Tipo']=='Membro']['Culto'].sum())}/{m_t}",
+                        "FA Cél/Cult": f"{int(f_p[f_p['Tipo']=='FA']['Célula'].sum())}/{fa_t} | {int(f_p[f_p['Tipo']=='FA']['Culto'].sum())}/{fa_t}",
+                        "Vis. Cél/Cult": f"{int(f_v['Vis_Celula'].sum())} | {int(f_v['Vis_Culto'].sum())}"
+                    })
+                st.table(pd.DataFrame(dados_ob))
+        else:
+            st.info("Sem dados para este mês.")
+    else:
+        st.info("Base de dados indisponível.")
