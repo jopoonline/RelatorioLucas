@@ -71,7 +71,7 @@ MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 st.title("🛡️ DISTRITO PRO 2026")
 tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇAR", "⚙️ GESTÃO", "📋 RELATÓRIO OB"])
 
-# --- ABA DASHBOARD (VERSÃO MODERNA) ---
+# --- ABA DASHBOARD ---
 with tab_dash:
     if st.button("🔄 Sincronizar"): st.cache_data.clear(); st.rerun()
     if not st.session_state.db.empty:
@@ -121,8 +121,7 @@ with tab_dash:
             c6.markdown(f'<div class="metric-box">Vis. Culto<br><span class="metric-value">{get_card_val("V","Culto")}</span></div>', unsafe_allow_html=True)
             
             cg1, cg2 = st.columns(2)
-            titulos = ["evolução semanal celula", "evolução semanal culto"]
-            for col, modo, k, tit in zip([cg1, cg2], ['Célula', 'Culto'], ['chart_cel', 'chart_cul'], titulos):
+            for col, modo, k, tit in zip([cg1, cg2], ['Célula', 'Culto'], ['chart_cel', 'chart_cul'], ["evolução semanal celula", "evolução semanal culto"]):
                 col.write(f"### 📈 {tit}")
                 g_d = df_m[df_m['Líder'].isin(lids_f)].groupby('Data_Ref')[modo].sum().reset_index()
                 g_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==MESES_MAP[m_s])&(st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data_Ref')['Vis_Celula' if modo=='Célula' else 'Vis_Culto'].sum().reset_index()
@@ -134,40 +133,44 @@ with tab_dash:
                 fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 col.plotly_chart(fig, use_container_width=True, key=k)
 
-            # --- NOVO COMPARATIVO MODERNO DE 2 MESES ---
+            # --- NOVO COMPARATIVO EM BARRAS (3 MESES) ---
             st.divider()
-            st.subheader(f"📊 Performance: {m_s} vs Mês Anterior")
+            st.subheader(f"📊 Performance: {m_s} e Meses Anteriores")
             
-            mes_atual_idx = MESES_MAP[m_s]
-            mes_ant_idx = mes_atual_idx - 1
+            idx_analise = MESES_MAP[m_s]
+            indices_comparar = [idx_analise - 2, idx_analise - 1, idx_analise]
             
-            if mes_ant_idx > 0:
-                def get_mes_data(idx):
-                    d = st.session_state.db[(st.session_state.db['MesNum']==idx) & (st.session_state.db['Líder'].isin(lids_f))]
-                    v = st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==idx) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
-                    # Agrupar por data (Semana 1, 2, 3...)
-                    g_d = d.groupby('Data_Ref')['Célula'].sum().reset_index()
-                    g_v = v.groupby('Data_Ref')['Vis_Celula'].sum().reset_index()
-                    m = pd.merge(g_d, g_v, on='Data_Ref', how='outer').fillna(0).sort_values('Data_Ref')
-                    m['Total'] = m['Célula'] + m.iloc[:,2]
-                    m['Semana'] = [f"Sem {i+1}" for i in range(len(m))]
-                    return m
+            dados_comp = []
+            for idx in indices_comparar:
+                if idx > 0:
+                    nome_m = MESES_NOMES[idx-1]
+                    d_mes = st.session_state.db[(st.session_state.db['MesNum']==idx) & (st.session_state.db['Líder'].isin(lids_f))]
+                    v_mes = st.session_state.db_visitantes[(st.session_state.db_visitantes['MesNum']==idx) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
+                    
+                    val_fa = int(d_mes[d_mes['Tipo']=="FA"]['Célula'].sum())
+                    val_vis = int(v_mes['Vis_Celula'].sum())
+                    val_mem = int(d_mes[d_mes['Tipo'].isin(['Membro','Liderança'])]['Célula'].sum())
+                    
+                    dados_comp.append({"Mês": nome_m, "Métrica": "Visitante + FA", "Valor": val_vis + val_fa})
+                    dados_comp.append({"Mês": nome_m, "Métrica": "Visitante", "Valor": val_vis})
+                    dados_comp.append({"Mês": nome_m, "Métrica": "Total Geral", "Valor": val_vis + val_fa + val_mem})
 
-                df_atual = get_mes_data(mes_atual_idx)
-                df_ant = get_mes_data(mes_ant_idx)
-                
-                fig_comp = go.Figure()
-                # Mês Anterior (Área Sombreada)
-                fig_comp.add_trace(go.Scatter(x=df_ant['Semana'], y=df_ant['Total'], fill='tozeroy', name=f"{MESES_NOMES[mes_ant_idx-1]} (Passado)", line=dict(color='rgba(150, 150, 150, 0.5)', width=2)))
-                # Mês Atual (Linha Destacada)
-                fig_comp.add_trace(go.Scatter(x=df_atual['Semana'], y=df_atual['Total'], fill='tonexty', name=f"{m_s} (Atual)", line=dict(color='#38BDF8', width=4)))
-                
-                fig_comp.update_layout(title="Comparativo de Frequência Total (Membros + Visitantes)", height=400, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1, xanchor="right", x=1))
-                st.plotly_chart(fig_comp, use_container_width=True)
-            else:
-                st.info("Selecione um mês a partir de Fevereiro para ver o comparativo com o mês anterior.")
+            if dados_comp:
+                df_barras = pd.DataFrame(dados_comp)
+                fig_bar = px.bar(
+                    df_barras, x="Mês", y="Valor", color="Métrica",
+                    barmode="group", text_auto=True,
+                    color_discrete_map={"Visitante + FA": "#38BDF8", "Visitante": "#0284C7", "Total Geral": "#F8FAFC"},
+                    height=450
+                )
+                fig_bar.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    font_color="#F8FAFC", title_font_size=20,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
 
-# --- ABA LANÇAR (INTOCADA) ---
+# --- ABAS LANÇAR, GESTÃO E OB (INTOCADAS) ---
 with tab_lanc:
     if st.session_state.membros_cadastrados:
         l_m = st.selectbox("Mês Lançar", MESES_NOMES, index=datetime.now().month-1)
@@ -188,7 +191,6 @@ with tab_lanc:
             dfv = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_ref)&(st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": dt_ref, "Líder": l_l, "Vis_Celula": vce, "Vis_Culto": vcu}])])
             if salvar_seguro("Presencas", dfp) and salvar_seguro("Visitantes", dfv): st.cache_data.clear(); st.rerun()
 
-# --- ABA GESTÃO (INTOCADA) ---
 with tab_gestao:
     def sync_membros():
         lista = []
@@ -252,7 +254,6 @@ with tab_gestao:
             if c_b2.button("❌", key=f"x_{nome}"):
                 del st.session_state.membros_cadastrados[cel_edit][nome]; sync_membros(); st.rerun()
 
-# --- ABA RELATÓRIO OB (INTOCADA) ---
 with tab_ob:
     st.header("📋 Relatório OB")
     m_ob = st.selectbox("Mês OB:", MESES_NOMES, index=datetime.now().month-1, key="ob_m_final")
