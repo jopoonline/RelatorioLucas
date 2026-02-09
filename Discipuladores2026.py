@@ -13,7 +13,8 @@ URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1y3vAXagtbdzaTHGEkPOuWI3T
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 2. FUNÇÕES DE DADOS ---
-@st.cache_data(ttl=600)
+# Diminuído TTL para 60 segundos para atualizar mais rápido
+@st.cache_data(ttl=60)
 def carregar_dados():
     try:
         df_p = conn.read(spreadsheet=URL_PLANILHA, worksheet="Presencas")
@@ -96,8 +97,13 @@ tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇ
 
 # --- TAB DASHBOARDS ---
 with tab_dash:
+    # BOTÃO DE ATUALIZAÇÃO FORÇADA
+    if st.button("🔄 Sincronizar Novos Dados da Planilha"):
+        st.cache_data.clear()
+        st.rerun()
+
     if st.session_state.db.empty or 'Data' not in st.session_state.db.columns:
-        st.info("💡 Sem dados.")
+        st.info("💡 Sem dados carregados.")
     else:
         lids_atuais = sorted(list(st.session_state.membros_cadastrados.keys()))
         lids_f = st.multiselect("Filtrar Células:", lids_atuais, default=lids_atuais)
@@ -105,10 +111,11 @@ with tab_dash:
         col_m, col_s = st.columns(2)
         mes_sel = col_m.selectbox("Mês:", MESES_NOMES, index=datetime.now().month - 1)
         
+        # Filtragem garantindo que a data seja reconhecida
         df_mes_f = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]]
         
         if df_mes_f.empty:
-            st.warning(f"Sem dados em {mes_sel}.")
+            st.warning(f"Sem lançamentos registrados em {mes_sel}.")
         else:
             datas_disp = sorted(df_mes_f['Data'].dropna().unique(), reverse=True)
             data_sel = col_s.selectbox("Semana:", datas_disp, format_func=lambda x: pd.to_datetime(x).strftime('%d/%m/%Y'))
@@ -161,29 +168,30 @@ with tab_dash:
             col_g2.plotly_chart(fig2, use_container_width=True)
 
             st.write("---")
-            st.write("### 📊 Comparativo Mensal (Médias)")
-            # Lógica para pegar meses anteriores
+            st.write("### 📊 Comparativo Mensal (Média por sábado)")
             mes_atual_num = MESES_MAP[mes_sel]
-            meses_comp = [mes_atual_num, mes_atual_num-1, mes_atual_num-2]
-            meses_comp = [m for m in meses_comp if m > 0]
+            # Meses para comparar (Atual e 2 anteriores)
+            meses_comp_nums = [mes_atual_num, mes_atual_num-1, mes_atual_num-2]
+            meses_comp_nums = [m for m in meses_comp_nums if m > 0]
             
-            comp_data = []
-            for m_num in meses_comp:
-                nome_m = [k for k, v in MESES_MAP.items() if v == m_num][0]
-                df_p_m = st.session_state.db[(st.session_state.db['Data'].dt.month == m_num) & (st.session_state.db['Líder'].isin(lids_f))]
-                df_v_m = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == m_num) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
+            comp_list = []
+            for m_n in meses_comp_nums:
+                n_m = [k for k, v in MESES_MAP.items() if v == m_n][0]
+                df_p_m = st.session_state.db[(st.session_state.db['Data'].dt.month == m_n) & (st.session_state.db['Líder'].isin(lids_f))]
+                df_v_m = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == m_n) & (st.session_state.db_visitantes['Líder'].isin(lids_f))]
                 
-                # Média por sábado
-                n_sabados = len(df_p_m['Data'].unique()) if len(df_p_m['Data'].unique()) > 0 else 1
-                media_cel = df_p_m['Célula'].sum() / n_sabados
-                media_cul = df_p_m['Culto'].sum() / n_sabados
-                media_vis = df_v_m['Vis_Celula'].sum() / n_sabados
-                
-                comp_data.append({"Mês": nome_m, "Célula": round(media_cel,1), "Culto": round(media_cul,1), "Visitantes": round(media_vis,1)})
+                sabs = len(df_p_m['Data'].unique()) if len(df_p_m['Data'].unique()) > 0 else 1
+                comp_list.append({
+                    "Mês": n_m,
+                    "Célula": round(df_p_m['Célula'].sum() / sabs, 1),
+                    "Culto": round(df_p_m['Culto'].sum() / sabs, 1),
+                    "Visitantes": round(df_v_m['Vis_Celula'].sum() / sabs, 1)
+                })
             
-            df_comp = pd.DataFrame(comp_data)
-            fig_comp = px.bar(df_comp, x='Mês', y=['Célula', 'Culto', 'Visitantes'], barmode='group', text_auto=True, title="Média de Frequência por Mês")
-            st.plotly_chart(fig_comp, use_container_width=True)
+            if comp_list:
+                df_comp = pd.DataFrame(comp_list)
+                fig_comp = px.bar(df_comp, x='Mês', y=['Célula', 'Culto', 'Visitantes'], barmode='group', text_auto=True)
+                st.plotly_chart(fig_comp, use_container_width=True)
 
             # ALERTAS
             st.write("### 🚨 Monitoramento")
@@ -203,7 +211,7 @@ with tab_dash:
                     if len(df_hv) == 2 and df_hv['Vis_Celula'].sum() == 0:
                         st.markdown(f'<div class="alert-warning">🚩 {lider}</div>', unsafe_allow_html=True)
 
-# --- TAB LANÇAR (Mantida) ---
+# --- MANUTENÇÃO DAS OUTRAS ABAS (LANÇAR, GESTÃO, OB) ---
 with tab_lanc:
     if not st.session_state.membros_cadastrados:
         st.warning("Cadastre líderes em GESTÃO.")
@@ -238,7 +246,6 @@ with tab_lanc:
                 time.sleep(1)
                 st.rerun()
 
-# --- TAB GESTÃO (Mantida) ---
 with tab_gestao:
     col_g1, col_g2 = st.columns(2)
     with col_g1:
@@ -253,7 +260,6 @@ with tab_gestao:
             if st.button("Adicionar"):
                 if n_m: st.session_state.membros_cadastrados[l_sel][n_m] = t_m; sincronizar_membros(); st.rerun()
 
-# --- TAB RELATÓRIO OB (Mantida) ---
 with tab_ob:
     mes_ob = st.selectbox("Mês Relatório:", MESES_NOMES, index=datetime.now().month-1, key="ob_m")
     if not st.session_state.db.empty:
