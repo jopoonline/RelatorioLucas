@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta, datetime
 from streamlit_gsheets import GSheetsConnection
+import time
 
 # --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="Distrito Pro 2026", layout="wide", page_icon="🛡️")
@@ -12,18 +13,17 @@ URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1y3vAXagtbdzaTHGEkPOuWI3T
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 2. FUNÇÕES DE DADOS ---
-@st.cache_data(ttl=60)
+# Aumentado o TTL para 600 segundos (10 minutos) para evitar erro de cota (429)
+@st.cache_data(ttl=600)
 def carregar_dados():
     try:
         df_p = conn.read(spreadsheet=URL_PLANILHA, worksheet="Presencas")
         df_v = conn.read(spreadsheet=URL_PLANILHA, worksheet="Visitantes")
         df_m = conn.read(spreadsheet=URL_PLANILHA, worksheet="Membros")
         
-        # Garante colunas mínimas se estiverem vazios
         if df_p.empty: df_p = pd.DataFrame(columns=['Data', 'Líder', 'Nome', 'Tipo', 'Célula', 'Culto'])
         if df_v.empty: df_v = pd.DataFrame(columns=['Data', 'Líder', 'Vis_Celula', 'Vis_Culto'])
         
-        # Conversão e Tratamento
         df_p['Data'] = pd.to_datetime(df_p['Data'], errors='coerce')
         df_v['Data'] = pd.to_datetime(df_v['Data'], errors='coerce')
         
@@ -33,14 +33,18 @@ def carregar_dados():
         m_dict = {}
         if not df_m.empty:
             for _, row in df_m.iterrows():
-                l = row['Líder']
-                if l not in m_dict: m_dict[l] = {}
-                if row['Nome'] != "LIDER_INICIAL":
+                l = row.get('Líder')
+                if l and l not in m_dict: m_dict[l] = {}
+                if row.get('Nome') != "LIDER_INICIAL":
                     m_dict[l][row['Nome']] = row['Tipo']
         return df_p, df_v, m_dict
     except Exception as e:
-        st.error(f"Erro ao carregar Planilha: {e}")
-        return pd.DataFrame(columns=['Data']), pd.DataFrame(columns=['Data']), {}
+        if "429" in str(e):
+            st.error("⚠️ O Google limitou o acesso por excesso de cliques. Aguarde 1 minuto e recarregue.")
+        else:
+            st.error(f"Erro de conexão: {e}")
+        # Retorna estruturas vazias seguras para não quebrar o app
+        return pd.DataFrame(columns=['Data', 'Líder']), pd.DataFrame(columns=['Data', 'Líder']), {}
 
 def sincronizar_membros():
     lista = []
@@ -50,8 +54,11 @@ def sincronizar_membros():
         else:
             for nome, tipo in pess.items():
                 lista.append({"Líder": lid, "Nome": nome, "Tipo": tipo})
-    conn.update(spreadsheet=URL_PLANILHA, worksheet="Membros", data=pd.DataFrame(lista))
-    st.cache_data.clear()
+    try:
+        conn.update(spreadsheet=URL_PLANILHA, worksheet="Membros", data=pd.DataFrame(lista))
+        st.cache_data.clear()
+    except:
+        st.error("Erro ao salvar. Aguarde um momento e tente novamente.")
 
 # --- 3. INICIALIZAÇÃO ---
 db_p, db_v, m_dict = carregar_dados()
@@ -76,12 +83,18 @@ MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 
 # --- 5. INTERFACE ---
 st.markdown('<p class="main-title">🛡️ DISTRITO PRO 2026</p>', unsafe_allow_html=True)
+
+# Botão de atualização manual (para quando o cache de 10min estiver ativo)
+if st.sidebar.button("🔄 Atualizar Dados Manualmente"):
+    st.cache_data.clear()
+    st.rerun()
+
 tab_dash, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 DASHBOARDS", "📝 LANÇAR", "⚙️ GESTÃO", "📋 RELATÓRIO OB"])
 
 # --- TAB DASHBOARDS ---
 with tab_dash:
     if st.session_state.db.empty or 'Data' not in st.session_state.db.columns:
-        st.info("💡 Sem dados para exibir.")
+        st.info("💡 Sem dados para exibir ou cota do Google excedida.")
     else:
         lids_atuais = sorted(list(st.session_state.membros_cadastrados.keys()))
         lids_f = st.multiselect("Filtrar Células:", lids_atuais, default=lids_atuais)
@@ -89,7 +102,6 @@ with tab_dash:
         col_m, col_s = st.columns(2)
         mes_sel = col_m.selectbox("Selecione o Mês:", MESES_NOMES, index=datetime.now().month - 1)
         
-        # Filtro de segurança para a coluna Data
         df_base = st.session_state.db
         df_mes_f = df_base[df_base['Data'].dt.month == MESES_MAP[mes_sel]]
         
@@ -125,28 +137,28 @@ with tab_dash:
             col_graf, col_alert = st.columns([2, 1])
             with col_graf:
                 st.write("#### Frequência Semanal - Célula")
-                df_mes_p = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Célula'].sum().reset_index()
+                df_mes_p = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Célula'].sum().reset_index()
                 df_mes_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Celula'].sum().reset_index()
                 df_line_cel = pd.merge(df_mes_p, df_mes_v, on='Data', how='outer').fillna(0).sort_values('Data')
 
                 fig_cel = go.Figure()
                 fig_cel.add_trace(go.Scatter(x=df_line_cel['Data'], y=df_line_cel['Célula'], name="Membros+FA", mode='lines+markers', line=dict(color='#38BDF8', width=4)))
                 fig_cel.add_trace(go.Scatter(x=df_line_cel['Data'], y=df_line_cel['Vis_Celula'], name="Visitantes", mode='lines+markers', line=dict(color='#60A5FA', width=2, dash='dot')))
-                fig_cel.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=20), xaxis=dict(tickformat="%d/%m", tickmode='array', tickvals=df_line_cel['Data']))
+                fig_cel.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=20))
                 st.plotly_chart(fig_cel, use_container_width=True)
 
                 st.write("#### Frequência Semanal - Culto")
-                df_mes_p_u = st.session_state.db[(st.session_state.db['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db['Líder'].isin(lids_f))].groupby('Data')['Culto'].sum().reset_index()
+                df_mes_p_u = df_mes_f[df_mes_f['Líder'].isin(lids_f)].groupby('Data')['Culto'].sum().reset_index()
                 df_mes_v_u = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month == MESES_MAP[mes_sel]) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].groupby('Data')['Vis_Culto'].sum().reset_index()
                 df_line_cul = pd.merge(df_mes_p_u, df_mes_v_u, on='Data', how='outer').fillna(0).sort_values('Data')
 
                 fig_cul = go.Figure()
                 fig_cul.add_trace(go.Scatter(x=df_line_cul['Data'], y=df_line_cul['Culto'], name="Membros+FA", mode='lines+markers', line=dict(color='#1D4ED8', width=4)))
                 fig_cul.add_trace(go.Scatter(x=df_line_cul['Data'], y=df_line_cul['Vis_Culto'], name="Visitantes", mode='lines+markers', line=dict(color='#3B82F6', width=2, dash='dot')))
-                fig_cul.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=20), xaxis=dict(tickformat="%d/%m", tickmode='array', tickvals=df_line_cul['Data']))
+                fig_cul.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=20))
                 st.plotly_chart(fig_cul, use_container_width=True)
 
-                st.write("#### Evolução Mensal Retroativa (2 Meses Anteriores)")
+                st.write("#### Evolução Mensal Retroativa (2 Meses Ant.)")
                 mes_ref = MESES_MAP[mes_sel]
                 meses_ant = [(mes_ref - 2), (mes_ref - 1)]
                 meses_ant = [m if m > 0 else m + 12 for m in meses_ant]
@@ -155,17 +167,12 @@ with tab_dash:
                 if not df_retro.empty:
                     df_retro['Mes_Num'] = df_retro['Data'].dt.month
                     res_retro_p = df_retro.groupby('Mes_Num')['Célula'].sum().reset_index()
-                    df_retro_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'].dt.month.isin(meses_ant)) & (st.session_state.db_visitantes['Líder'].isin(lids_f))].copy()
-                    df_retro_v['Mes_Num'] = df_retro_v['Data'].dt.month
-                    res_retro_v = df_retro_v.groupby('Mes_Num')['Vis_Celula'].sum().reset_index()
-                    res_final = pd.merge(res_retro_p, res_retro_v, on='Mes_Num', how='outer').fillna(0)
+                    res_final = res_retro_p.copy()
                     res_final['Mes_Nome'] = res_final['Mes_Num'].apply(lambda x: MESES_NOMES[x-1])
-                    res_final = res_final.sort_values('Mes_Num')
-
+                    
                     fig_ev = go.Figure()
                     fig_ev.add_trace(go.Scatter(x=res_final['Mes_Nome'], y=res_final['Célula'], name="Interno", mode='lines+markers+text', text=res_final['Célula'], textposition="top center", line=dict(color='#38BDF8', width=4)))
-                    fig_ev.add_trace(go.Scatter(x=res_final['Mes_Nome'], y=res_final['Vis_Celula'], name="Visitantes", mode='lines+markers+text', text=res_final['Vis_Celula'], textposition="top center", line=dict(color='#FACC15', width=3)))
-                    fig_ev.update_layout(template="plotly_dark", height=300, margin=dict(l=10,r=10,b=0,t=40))
+                    fig_ev.update_layout(template="plotly_dark", height=250, margin=dict(l=10,r=10,b=0,t=40))
                     st.plotly_chart(fig_ev, use_container_width=True)
 
             with col_alert:
@@ -184,7 +191,6 @@ with tab_lanc:
     else:
         ca, cb, cc = st.columns(3)
         m_l = ca.selectbox("Mês Lançamento", MESES_NOMES, index=datetime.now().month-1)
-        # Filtra apenas sábados de 2026 para o mês selecionado
         datas_sab = [date(2026, MESES_MAP[m_l], d) for d in range(1, 32) if (date(2026, MESES_MAP[m_l], 1) + timedelta(days=d-1)).month == MESES_MAP[m_l] and (date(2026, MESES_MAP[m_l], 1) + timedelta(days=d-1)).weekday() == 5]
         d_l = cb.selectbox("Data (Sábado)", datas_sab, format_func=lambda x: x.strftime('%d/%m'))
         l_l = cc.selectbox("Líder", sorted(st.session_state.membros_cadastrados.keys()))
@@ -203,15 +209,19 @@ with tab_lanc:
             novos.append({"Data": d_l, "Líder": l_l, "Nome": n, "Tipo": t, "Célula": 1 if p_e else 0, "Culto": 1 if p_u else 0})
             
         if st.button("💾 SALVAR TUDO", use_container_width=True, type="primary"):
-            dt_l = pd.to_datetime(d_l)
-            df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_l) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
-            conn.update(spreadsheet=URL_PLANILHA, worksheet="Presencas", data=df_p_new)
-            
-            df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_l) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
-            conn.update(spreadsheet=URL_PLANILHA, worksheet="Visitantes", data=df_v_new)
-            st.cache_data.clear()
-            st.success("Salvo com sucesso!")
-            st.rerun()
+            try:
+                dt_l = pd.to_datetime(d_l)
+                df_p_new = pd.concat([st.session_state.db[~((st.session_state.db['Data']==dt_l) & (st.session_state.db['Líder']==l_l))], pd.DataFrame(novos)])
+                conn.update(spreadsheet=URL_PLANILHA, worksheet="Presencas", data=df_p_new)
+                
+                df_v_new = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data']==dt_l) & (st.session_state.db_visitantes['Líder']==l_l))], pd.DataFrame([{"Data": d_l, "Líder": l_l, "Vis_Celula": v_cel_in, "Vis_Culto": v_cul_in}])])
+                conn.update(spreadsheet=URL_PLANILHA, worksheet="Visitantes", data=df_v_new)
+                st.cache_data.clear()
+                st.success("Salvo com sucesso!")
+                time.sleep(1)
+                st.rerun()
+            except:
+                st.error("Erro ao salvar devido a limite de cota. Tente novamente em 1 minuto.")
 
 # --- TAB GESTÃO ---
 with tab_gestao:
@@ -220,61 +230,7 @@ with tab_gestao:
     with col1:
         n_l = st.text_input("Novo Líder")
         if st.button("Criar Célula"):
-            if n_l: st.session_state.membros_cadastrados[n_l] = {}; sincronizar_membros(); st.rerun()
-    with col2:
-        if st.session_state.membros_cadastrados:
-            l_sel = st.selectbox("Na Célula:", sorted(st.session_state.membros_cadastrados.keys()))
-            n_m = st.text_input("Nome Pessoa")
-            t_m = st.radio("Tipo", ["Membro", "FA"], horizontal=True)
-            if st.button("Salvar Pessoa"):
-                st.session_state.membros_cadastrados[l_sel][n_m] = t_m
-                sincronizar_membros(); st.rerun()
-
-    st.divider()
-    st.subheader("🗑️ Área de Exclusão")
-    lids_lista = sorted(st.session_state.membros_cadastrados.keys())
-    if lids_lista:
-        col_ed1, col_ed2 = st.columns(2)
-        with col_ed1:
-            l_ed = st.selectbox("Célula da Pessoa:", lids_lista, key="l_ed")
-            if l_ed in st.session_state.membros_cadastrados and st.session_state.membros_cadastrados[l_ed]:
-                p_ed = st.selectbox("Selecione a Pessoa:", sorted(st.session_state.membros_cadastrados[l_ed].keys()))
-                tipo_atual = st.session_state.membros_cadastrados[l_ed][p_ed]
-                st.info(f"Tipo: {tipo_atual}")
-                if st.button("Excluir Pessoa", type="primary"):
-                    del st.session_state.membros_cadastrados[l_ed][p_ed]
-                    sincronizar_membros(); st.rerun()
-        with col_ed2:
-            l_del = st.selectbox("Célula a excluir:", lids_lista, key="l_del")
-            if st.button("EXCLUIR CÉLULA INTEIRA", type="primary"):
-                del st.session_state.membros_cadastrados[l_del]
-                sincronizar_membros(); st.rerun()
-
-# --- TAB RELATÓRIO OB ---
-with tab_ob:
-    st.subheader("📋 Relatório Semanal")
-    mes_ob = st.selectbox("Relatório de:", MESES_NOMES, index=datetime.now().month-1, key="m_ob")
-    
-    # Proteção para coluna Data
-    if not st.session_state.db.empty and 'Data' in st.session_state.db.columns:
-        df_p_ob = st.session_state.db[st.session_state.db['Data'].dt.month == MESES_MAP[mes_ob]]
-        if not df_p_ob.empty:
-            for sem in sorted(df_p_ob['Data'].dropna().unique(), reverse=True):
-                st.write(f"#### 📅 Semana: {pd.to_datetime(sem).strftime('%d/%m/%Y')}")
-                dados_ob = []
-                for lid in sorted(st.session_state.membros_cadastrados.keys()):
-                    f_p = df_p_ob[(df_p_ob['Data'] == sem) & (df_p_ob['Líder'] == lid)]
-                    f_v = st.session_state.db_visitantes[(st.session_state.db_visitantes['Data'] == sem) & (st.session_state.db_visitantes['Líder'] == lid)]
-                    m_t = sum(1 for n, t in st.session_state.membros_cadastrados[lid].items() if t == "Membro")
-                    fa_t = sum(1 for n, t in st.session_state.membros_cadastrados[lid].items() if t == "FA")
-                    dados_ob.append({
-                        "Líder": lid,
-                        "Membros Cél/Cult": f"{int(f_p[f_p['Tipo']=='Membro']['Célula'].sum())}/{m_t} | {int(f_p[f_p['Tipo']=='Membro']['Culto'].sum())}/{m_t}",
-                        "FA Cél/Cult": f"{int(f_p[f_p['Tipo']=='FA']['Célula'].sum())}/{fa_t} | {int(f_p[f_p['Tipo']=='FA']['Culto'].sum())}/{fa_t}",
-                        "Vis. Cél/Cult": f"{int(f_v['Vis_Celula'].sum())} | {int(f_v['Vis_Culto'].sum())}"
-                    })
-                st.table(pd.DataFrame(dados_ob))
-        else:
-            st.info("Sem dados para este mês.")
-    else:
-        st.info("Base de dados indisponível.")
+            if n_l: 
+                st.session_state.membros_cadastrados[n_l] = {}
+                sincronizar_membros()
+                st.rer
