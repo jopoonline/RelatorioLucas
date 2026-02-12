@@ -203,12 +203,12 @@ with tab_lanc:
             </div>''', unsafe_allow_html=True)
             
             b1, b2, b3, b4 = st.columns([1, 2, 2, 1])
-            label_cel = "🏠 ✅" if st.session_state.presencas_bt[k_cel] else "🏠 ❌"
+            label_cel = "Célula 🏠 ✅" if st.session_state.presencas_bt[k_cel] else "Célula 🏠 ❌"
             if b2.button(label_cel, key=f"btn_{k_cel}", use_container_width=True):
                 st.session_state.presencas_bt[k_cel] = not st.session_state.presencas_bt[k_cel]
                 st.rerun()
 
-            label_cul = "⛪ ✅" if st.session_state.presencas_bt[k_cul] else "⛪ ❌"
+            label_cul = "Culto ⛪ ✅" if st.session_state.presencas_bt[k_cul] else "Culto ⛪ ❌"
             if b3.button(label_cul, key=f"btn_{k_cul}", use_container_width=True):
                 st.session_state.presencas_bt[k_cul] = not st.session_state.presencas_bt[k_cul]
                 st.rerun()
@@ -343,3 +343,4 @@ if tab_ob:
                     else: ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = "❌ | ❌"
                 cham_d.append(ln)
             st.dataframe(pd.DataFrame(cham_d), use_container_width=True, hide_index=True)
+
