@@ -7,7 +7,7 @@ import time
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. CONFIGURAÇÃO ---
-st.set_page_config(page_title="Distrito Pro 2026", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="Relatorio Lucas e Rosana", layout="wide", page_icon="🛡️")
 
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1y3vAXagtbdzaTHGEkPOuWI3TvzcfFYhfO1JUt0GrhG8/edit?usp=sharing"
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -343,5 +343,6 @@ if tab_ob:
                     else: ln[datetime.strptime(d, '%Y-%m-%d').strftime('%d/%m')] = "❌ | ❌"
                 cham_d.append(ln)
             st.dataframe(pd.DataFrame(cham_d), use_container_width=True, hide_index=True)
+
 
 
