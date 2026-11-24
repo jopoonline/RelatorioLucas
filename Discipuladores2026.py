@@ -11,7 +11,7 @@ from streamlit_gsheets import GSheetsConnection
 # =====================================================================
 # 1. CONFIGURAÇÃO  (nada mudou na conexão com o Google Sheets)
 # =====================================================================
-st.set_page_config(page_title="Relatorio Lucas e Rosana", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="Relatorio Lucas e Rosana", layout="wide", page_icon="⛪")
 
 URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1y3vAXagtbdzaTHGEkPOuWI3TvzcfFYhfO1JUt0GrhG8/edit?usp=sharing"
 conn = st.connection("gsheets", type=GSheetsConnection)
