@@ -4,6 +4,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta, datetime
 import time
+import base64
+import io
+from PIL import Image, ImageOps
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 from streamlit_gsheets import GSheetsConnection
@@ -11,9 +14,9 @@ from streamlit_gsheets import GSheetsConnection
 # =====================================================================
 # 1. CONFIGURAÇÃO  (nada mudou na conexão com o Google Sheets)
 # =====================================================================
-st.set_page_config(page_title="Relatorio Lucas e Rosana", layout="wide", page_icon="⛪")
+st.set_page_config(page_title=f"Deric Relatorio {datetime.now(ZoneInfo('America/Sao_Paulo')).year}", layout="wide", page_icon="⛪")
 
-URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1y3vAXagtbdzaTHGEkPOuWI3TvzcfFYhfO1JUt0GrhG8/edit?usp=sharing"
+URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1Bb9wK8dwRYjOJ5leTKxT9VQ0Ib7z-aD5MXCHJX0hNXs/edit?usp=sharing"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # =====================================================================
@@ -33,6 +36,7 @@ def carregar_dados():
             df['Data_Obj'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
             df['Data_Ref'] = df['Data_Obj'].dt.strftime('%Y-%m-%d')
             df['MesNum'] = df['Data_Obj'].dt.month
+            df['Ano'] = df['Data_Obj'].dt.year
             return df
 
         df_p = padronizar(df_p)
@@ -56,7 +60,7 @@ def carregar_dados():
 def salvar_seguro(worksheet, df):
     try:
         df_save = df.copy()
-        cols_limpar = ['Data_Obj', 'Data_Ref', 'MesNum']
+        cols_limpar = ['Data_Obj', 'Data_Ref', 'MesNum', 'Ano']
         df_save = df_save.drop(columns=[c for c in cols_limpar if c in df_save.columns])
         if 'Data' in df_save.columns: df_save['Data'] = df_save['Data'].astype(str)
         conn.update(spreadsheet=URL_PLANILHA, worksheet=worksheet, data=df_save)
@@ -65,13 +69,83 @@ def salvar_seguro(worksheet, df):
         st.error(f"Erro ao salvar: {e}"); return False
 
 
+# ---------- FOTOS (aba "Fotos" da planilha: colunas Nome e Foto) ----------
+ABA_FOTOS = "Fotos"
+LADO_FOTO = 160          # a foto vira um quadrado de 160 x 160 pixels
+LIMITE_CELULA = 40000    # o Google Sheets aceita até 50.000 caracteres por célula
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def carregar_fotos():
+    """Devolve {nome: foto em base64}. Se a aba Fotos ainda não existir, devolve vazio."""
+    try:
+        df = conn.read(spreadsheet=URL_PLANILHA, worksheet=ABA_FOTOS, ttl=0)
+        df = df.dropna(subset=["Nome", "Foto"])
+        return {str(r["Nome"]).strip(): str(r["Foto"]).strip() for _, r in df.iterrows() if str(r["Foto"]).strip()}
+    except Exception:
+        return {}
+
+
+def processar_foto(arquivo):
+    """Gira conforme o celular, recorta em quadrado, reduz e comprime. Devolve (base64, tamanho em KB)."""
+    img = Image.open(arquivo)
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    img = ImageOps.fit(img, (LADO_FOTO, LADO_FOTO), method=Image.LANCZOS, centering=(0.5, 0.4))
+    for qualidade in (82, 72, 62, 50, 40):
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=qualidade, optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        if len(b64) < LIMITE_CELULA:
+            break
+    return b64, len(buf.getvalue()) / 1024
+
+
+def gravar_foto(nome, b64):
+    """Grava (ou remove, se b64 for None) a foto de uma pessoa na aba Fotos. Não mexe em nenhuma outra aba."""
+    try:
+        atual = conn.read(spreadsheet=URL_PLANILHA, worksheet=ABA_FOTOS, ttl=0)
+        atual = atual.dropna(how="all")
+        aba_existe = True
+    except Exception:
+        atual = pd.DataFrame(columns=["Nome", "Foto"])
+        aba_existe = False
+    if "Nome" not in atual.columns or "Foto" not in atual.columns:
+        atual = pd.DataFrame(columns=["Nome", "Foto"])
+    atual = atual[["Nome", "Foto"]]
+    atual = atual[atual["Nome"].astype(str).str.strip() != nome]
+    if b64:
+        atual = pd.concat([atual, pd.DataFrame([{"Nome": nome, "Foto": b64}])], ignore_index=True)
+    try:
+        if not aba_existe:
+            planilha = conn.client._open_spreadsheet(spreadsheet=URL_PLANILHA)
+            planilha.add_worksheet(title=ABA_FOTOS, rows=max(len(atual) + 1, 50), cols=2)
+        conn.update(spreadsheet=URL_PLANILHA, worksheet=ABA_FOTOS, data=atual)
+        carregar_fotos.clear()
+        return True
+    except Exception as e:
+        st.error(f"Não foi possível salvar a foto: {e}")
+        return False
+
+
 # =====================================================================
 # 3. INICIALIZAÇÃO
 # =====================================================================
+FUSO = ZoneInfo("America/Sao_Paulo")
+ANO_ATUAL = datetime.now(FUSO).year
+ANOS = list(range(2026, max(ANO_ATUAL, 2026) + 2))   # sempre oferece o ano seguinte (em 2026 já aparece 2027)
+
+st.sidebar.markdown("### 📆 Ano dos relatórios")
+ANO = st.sidebar.selectbox("Ano", ANOS, index=ANOS.index(max(ANO_ATUAL, 2026)), key="ano_view", label_visibility="collapsed")
+
 db_p, db_v, m_dict = carregar_dados()
-st.session_state.db = db_p
-st.session_state.db_visitantes = db_v
+# Base completa: usada só para GRAVAR (nunca perde os outros anos)
+st.session_state.db_full = db_p
+st.session_state.db_visitantes_full = db_v
+# Base do ano escolhido: usada para mostrar dashboards e relatórios
+st.session_state.db = db_p[db_p['Ano'] == ANO] if 'Ano' in db_p.columns else db_p
+st.session_state.db_visitantes = db_v[db_v['Ano'] == ANO] if 'Ano' in db_v.columns else db_v
 st.session_state.membros_cadastrados = m_dict
+FOTOS = carregar_fotos()
 
 # =====================================================================
 # 4. ESTILO (visual novo)
@@ -138,6 +212,10 @@ html, body, .stApp, .stApp p, .stApp label, .stApp input, .stApp button, .stApp 
 /* ---------- Pessoa (chamada) ---------- */
 .pessoa { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
 .avatar { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #080C18; font-size: .95rem; flex-shrink: 0; }
+img.avatar { object-fit: cover; padding: 0; background: #111827; }
+.foto-previa { display: flex; align-items: center; gap: 16px; padding: 6px 0 10px 0; }
+.foto-previa img { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; border: 3px solid #22D3EE; }
+.foto-previa div { color: #CBD3E6; font-size: .9rem; }
 .pessoa-nome { font-weight: 700; color: #FFFFFF; font-size: 1.02rem; line-height: 1.15; }
 .badge { display: inline-block; font-size: .7rem; font-weight: 700; padding: 2px 10px; border-radius: 999px; margin-top: 3px; }
 
@@ -224,6 +302,8 @@ button[data-testid="stBaseButton-secondary"] p { color: #FFFFFF !important; }
 MESES_NOMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 MESES_MAP = {n: i+1 for i, n in enumerate(MESES_NOMES)}
 
+MES_PADRAO = datetime.now(FUSO).month - 1 if ANO == ANO_ATUAL else 0
+
 CORES_TIPO = {"Liderança": "#34D399", "Membro": COR_PRIMARIA, "FA": COR_FA}
 
 
@@ -246,6 +326,16 @@ def iniciais(nome):
     return (partes[0][0] + (partes[-1][0] if len(partes) > 1 else "")).upper() if partes else "?"
 
 
+def avatar(nome, cor, tam=42, fonte=".95rem"):
+    """Círculo com a foto da pessoa; sem foto, mostra as iniciais."""
+    foto = FOTOS.get(str(nome).strip()) if MOSTRAR_FOTOS else None
+    if foto:
+        return (f'<img class="avatar" alt="{nome}" src="data:image/jpeg;base64,{foto}" '
+                f'style="width:{tam}px;height:{tam}px;border:2px solid {cor}">')
+    return (f'<div class="avatar" style="background:{cor};width:{tam}px;height:{tam}px;font-size:{fonte}">'
+            f'{iniciais(nome)}</div>')
+
+
 def estilo_grafico(fig, altura=320):
     fig.update_layout(
         height=altura, template="plotly_dark",
@@ -266,8 +356,8 @@ def estilo_grafico(fig, altura=320):
 # =====================================================================
 st.markdown(
     '<div class="hero"><div class="hero-marca"><span class="hero-emoji">🛡️</span><div>'
-    '<div class="hero-kicker">Relatório 2026</div>'
-    '<div class="hero-titulo">Lucas e Rosana</div>'
+    f'<div class="hero-kicker">Relatório {ANO}</div>'
+    '<div class="hero-titulo">Deric e Nayara</div>'
     '<div class="hero-sub">Frequência de células e culto</div></div></div>'
     f'<div class="hero-chip"><span class="ponto"></span>Planilha lida às {datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%H:%M")}</div></div>',
     unsafe_allow_html=True,
@@ -281,6 +371,11 @@ acesso_admin = st.sidebar.text_input("Senha de Gestão:", type="password")
 SENHA_CORRETA = "Videira@1020"
 
 # Lógica das Abas
+# Fotos: True = aparecem para todos (inclusive na tela do líder, que abre sem senha)
+#        False = aparecem só para quem entrou com a senha
+FOTOS_SEM_SENHA = True
+MOSTRAR_FOTOS = FOTOS_SEM_SENHA or acesso_admin == SENHA_CORRETA
+
 if acesso_admin == SENHA_CORRETA:
     tab_dash, tab_freq, tab_lanc, tab_gestao, tab_ob = st.tabs(["📊 Dashboard", "📈 Frequência", "📝 Relatório do Líder", "⚙️ Gestão de Células", "📋 Relatório OB"])
 else:
@@ -307,7 +402,7 @@ if tab_dash:
 
             # ---- Filtros de período ----
             f1, f2 = st.columns(2)
-            m_s = f1.selectbox("Mês de Análise:", MESES_NOMES, index=datetime.now().month-1)
+            m_s = f1.selectbox("Mês de Análise:", MESES_NOMES, index=MES_PADRAO)
             df_m = st.session_state.db[st.session_state.db['MesNum'] == MESES_MAP[m_s]]
 
             if df_m.empty:
@@ -456,7 +551,7 @@ if tab_freq:
         else:
             with st.container(border=True):
                 fc1, fc2 = st.columns([1, 3])
-                mes_f = fc1.selectbox("📅 Mês", MESES_NOMES, index=datetime.now().month-1, key="freq_mes")
+                mes_f = fc1.selectbox("📅 Mês", MESES_NOMES, index=MES_PADRAO, key="freq_mes")
                 cels_todas = sorted(cad.keys())
                 cels_f = fc2.multiselect("🏠 Células", cels_todas, default=cels_todas, key="freq_cels")
             n_mes = MESES_MAP[mes_f]
@@ -495,7 +590,7 @@ if tab_freq:
                         dif = sem[-1] - sem[0]
                         tend = f'<span style="color:{COR_OK if dif >= 0 else COR_ALERTA};font-weight:700">{"▲" if dif >= 0 else "▼"} {abs(dif):.0f} pts</span>'
                     corpo = (f'<div class="cel-card" style="--c:{cor}">'
-                             f'<div class="cel-top"><div class="avatar" style="background:linear-gradient(135deg,#22D3EE,#818CF8);width:34px;height:34px;font-size:.8rem">{iniciais(cel)}</div>'
+                             f'<div class="cel-top">{avatar(cel, "#22D3EE", 36, ".8rem")}'
                              f'<div class="cel-nome">{cel}<small>{nsem} sábado(s) lançado(s)</small></div></div>')
                     if pc is None:
                         corpo += f'<div class="cel-vazio">Sem lançamentos em {mes_f}</div></div>'
@@ -591,7 +686,7 @@ if tab_freq:
                                         f'<span class="dest-num" style="color:{COR_ALERTA}">🏠 {pc}/{n} · ⛪ {pu}/{n}</span></div>', unsafe_allow_html=True)
 
             # ---------- 3. Evolução do ano ----------
-            secao("📈 Evolução no ano", "% de presença mês a mês")
+            secao("📈 Evolução no ano", f"% de presença mês a mês em {ANO}")
             da = db[db['Líder'].isin(cels_f)].copy()
             if not da.empty:
                 da['Grupo'] = da['Tipo'].map(lambda t: "FA" if t == "FA" else "Membros")
@@ -629,9 +724,10 @@ with tab_lanc:
         st.markdown('<div class="passo"><span>1</span> Escolha a célula e o sábado</div>', unsafe_allow_html=True)
         with st.container(border=True):
             l_l = st.selectbox("🏠 Sua Célula", sorted(st.session_state.membros_cadastrados.keys()))
-            c_m, c_d = st.columns(2)
-            l_m = c_m.selectbox("📅 Mês", MESES_NOMES, index=datetime.now().month-1)
-            datas_s = [date(2026, MESES_MAP[l_m], d) for d in range(1, 32) if (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).month == MESES_MAP[l_m] and (date(2026, MESES_MAP[l_m], 1) + timedelta(days=d-1)).weekday() == 5]
+            c_a, c_m, c_d = st.columns([1, 1.4, 1.2])
+            l_a = c_a.selectbox("📆 Ano", ANOS, index=ANOS.index(max(ANO_ATUAL, 2026)), key="ano_lanc")
+            l_m = c_m.selectbox("📅 Mês", MESES_NOMES, index=datetime.now(FUSO).month-1)
+            datas_s = [date(l_a, MESES_MAP[l_m], d) for d in range(1, 32) if (date(l_a, MESES_MAP[l_m], 1) + timedelta(days=d-1)).month == MESES_MAP[l_m] and (date(l_a, MESES_MAP[l_m], 1) + timedelta(days=d-1)).weekday() == 5]
             d_l = c_d.selectbox("🗓️ Sábado", datas_s, format_func=lambda x: x.strftime('%d/%m'))
 
         if "presencas_bt" not in st.session_state: st.session_state.presencas_bt = {}
@@ -665,7 +761,7 @@ with tab_lanc:
                     st.session_state[k] = [OPC_CEL, OPC_CUL] if tipo == "Liderança" else []
                 with st.container(border=True):
                     st.markdown(
-                        f'<div class="pessoa"><div class="avatar" style="background:{cor}">{iniciais(nome)}</div>'
+                        f'<div class="pessoa">{avatar(nome, cor)}'
                         f'<div><div class="pessoa-nome">{nome}</div>'
                         f'<span class="badge" style="background:{cor}22;color:{cor}">{tipo}</span></div></div>',
                         unsafe_allow_html=True,
@@ -732,8 +828,9 @@ with tab_lanc:
                     })
 
                 dt_ref = d_l.strftime('%d/%m/%Y')
-                dfp = pd.concat([st.session_state.db[~((st.session_state.db['Data'] == dt_ref) & (st.session_state.db['Líder'] == l_l))], pd.DataFrame(novos)])
-                dfv = pd.concat([st.session_state.db_visitantes[~((st.session_state.db_visitantes['Data'] == dt_ref) & (st.session_state.db_visitantes['Líder'] == l_l))], pd.DataFrame([{"Data": dt_ref, "Líder": l_l, "Vis_Celula": vce, "Vis_Culto": vcu}])])
+                base_p = st.session_state.db_full; base_v = st.session_state.db_visitantes_full
+                dfp = pd.concat([base_p[~((base_p['Data'] == dt_ref) & (base_p['Líder'] == l_l))], pd.DataFrame(novos)])
+                dfv = pd.concat([base_v[~((base_v['Data'] == dt_ref) & (base_v['Líder'] == l_l))], pd.DataFrame([{"Data": dt_ref, "Líder": l_l, "Vis_Celula": vce, "Vis_Culto": vcu}])])
 
                 with st.spinner("Salvando na planilha..."):
                     ok = salvar_seguro("Presencas", dfp) and salvar_seguro("Visitantes", dfv)
@@ -826,6 +923,47 @@ if tab_gestao:
                                 del st.session_state.membros_cadastrados[cel_origem][membro_transf]
                                 sync_membros(); st.rerun()
 
+        # ---------------- FOTOS ----------------
+        secao("📷 Fotos das pessoas", "a foto aparece no círculo, no lugar das iniciais")
+        with st.container(border=True):
+            fo1, fo2 = st.columns(2)
+            cel_foto = fo1.selectbox("Célula:", sorted(st.session_state.membros_cadastrados.keys()), key="foto_cel")
+            pessoas_foto = [cel_foto] + list(st.session_state.membros_cadastrados.get(cel_foto, {}).keys())
+            pessoa_foto = fo2.selectbox("Pessoa:", pessoas_foto, key="foto_pessoa",
+                                        format_func=lambda n: f"{n}  ✓ tem foto" if str(n).strip() in FOTOS else n)
+            nome_foto = str(pessoa_foto).strip()
+
+            origem = st.radio("Como quer enviar a foto?", ["🖼️ Escolher da galeria", "📸 Tirar foto agora"],
+                              horizontal=True, key="foto_origem")
+            if origem.startswith("📸"):
+                arquivo = st.camera_input("Tire a foto", key=f"cam_{nome_foto}")
+            else:
+                arquivo = st.file_uploader("Escolha a foto", type=["jpg", "jpeg", "png", "webp"], key=f"up_{nome_foto}")
+
+            if arquivo is not None:
+                try:
+                    b64, kb = processar_foto(arquivo)
+                except Exception:
+                    st.error("Não consegui abrir essa imagem. Tente uma foto em JPG ou PNG.")
+                else:
+                    st.markdown(f'<div class="foto-previa"><img src="data:image/jpeg;base64,{b64}">'
+                                f'<div><b>Prévia de {nome_foto}</b><br>Foto reduzida para {LADO_FOTO}×{LADO_FOTO} px '
+                                f'· {kb:.0f} KB</div></div>', unsafe_allow_html=True)
+                    if st.button(f"💾 Salvar foto de {nome_foto}", type="primary", use_container_width=True, key="salvar_foto"):
+                        with st.spinner("Salvando a foto na planilha..."):
+                            if gravar_foto(nome_foto, b64):
+                                st.toast(f"Foto de {nome_foto} salva!")
+                                st.session_state.pop(f"up_{nome_foto}", None)
+                                st.session_state.pop(f"cam_{nome_foto}", None)
+                                st.rerun()
+            elif nome_foto in FOTOS:
+                st.markdown(f'<div class="foto-previa"><img src="data:image/jpeg;base64,{FOTOS[nome_foto]}">'
+                            f'<div><b>Foto atual de {nome_foto}</b><br>Envie outra para trocar.</div></div>',
+                            unsafe_allow_html=True)
+                if st.button(f"Remover foto de {nome_foto}", key="remover_foto"):
+                    if gravar_foto(nome_foto, None):
+                        st.rerun()
+
         secao("🗂️ Gerenciar e excluir")
         if st.session_state.membros_cadastrados:
             with st.container(border=True):
@@ -835,7 +973,7 @@ if tab_gestao:
                     cor = CORES_TIPO.get(tipo, COR_PRIMARIA)
                     c_n, c_b1, c_b2 = st.columns([5, 3, 1], vertical_alignment="center")
                     c_n.markdown(
-                        f'<div class="pessoa"><div class="avatar" style="background:{cor};width:32px;height:32px;font-size:.8rem">{iniciais(nome)}</div>'
+                        f'<div class="pessoa">{avatar(nome, cor, 36, ".8rem")}'
                         f'<div class="pessoa-nome">{nome} <span class="badge" style="background:{cor}22;color:{cor}">{tipo}</span></div></div>',
                         unsafe_allow_html=True,
                     )
@@ -854,7 +992,7 @@ if tab_gestao:
 # =====================================================================
 if tab_ob:
     with tab_ob:
-        m_ob = st.selectbox("Mês:", MESES_NOMES, index=datetime.now().month-1, key="ob_m_final")
+        m_ob = st.selectbox("Mês:", MESES_NOMES, index=MES_PADRAO, key="ob_m_final")
         df_ob = st.session_state.db[st.session_state.db['MesNum'] == MESES_MAP[m_ob]]
         df_v_ob = st.session_state.db_visitantes[st.session_state.db_visitantes['MesNum'] == MESES_MAP[m_ob]]
 
@@ -893,10 +1031,10 @@ if tab_ob:
             # ================= FECHAMENTO DO MÊS → OBREIRO =================
             secao("📤 Fechamento do mês", f"enviar o relatório de {m_ob} para o Obreiro")
             n_m = MESES_MAP[m_ob]
-            sabados_mes = [date(2026, n_m, d) for d in range(1, 32)
-                           if (date(2026, n_m, 1) + timedelta(days=d-1)).month == n_m
-                           and (date(2026, n_m, 1) + timedelta(days=d-1)).weekday() == 5]
-            sabados_passados = [sb for sb in sabados_mes if sb <= date.today()]
+            sabados_mes = [date(ANO, n_m, d) for d in range(1, 32)
+                           if (date(ANO, n_m, 1) + timedelta(days=d-1)).month == n_m
+                           and (date(ANO, n_m, 1) + timedelta(days=d-1)).weekday() == 5]
+            sabados_passados = [sb for sb in sabados_mes if sb <= datetime.now(FUSO).date()]
             mes_fechado = len(sabados_passados) == len(sabados_mes)
             cels_rede = sorted(st.session_state.membros_cadastrados.keys())
 
@@ -926,8 +1064,8 @@ if tab_ob:
                     st.markdown('<div class="ok">✅ Todas as células lançaram todos os sábados.</div>', unsafe_allow_html=True)
 
                 # ---- Monta a mensagem ----
-                msg = [f"*FECHAMENTO DE {m_ob.upper()}/2026*" + ("" if mes_fechado else " _(parcial)_"),
-                       "Rede Lucas e Rosana", "",
+                msg = [f"*FECHAMENTO DE {m_ob.upper()}/{ANO}*" + ("" if mes_fechado else " _(parcial)_"),
+                       "Rede Deric e Nayara", "",
                        "*SEMANA A SEMANA* (célula | culto)"]
                 for d_r in sorted(df_ob['Data_Ref'].unique()):
                     df_s = df_ob[df_ob['Data_Ref'] == d_r]
